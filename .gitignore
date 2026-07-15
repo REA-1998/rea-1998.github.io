@@ -1,3 +1,8 @@
 *
 !index.html
 !.gitignore
+!manifest.json
+!og-image.png
+!icon-180.png
+!icon-512.png
+!favicon.png
