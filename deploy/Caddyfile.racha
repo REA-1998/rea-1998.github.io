@@ -1,0 +1,8 @@
+# Bloco do Racha REA — acrescente ao /etc/caddy/Caddyfile existente (troque o domínio).
+# NÃO apaga o bloco da Riovare; só adiciona este.
+
+racha.riovare.com.br {
+    root * /opt/racha/site
+    file_server
+    encode gzip
+}

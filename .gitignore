@@ -6,3 +6,16 @@
 !icon-180.png
 !icon-512.png
 !favicon.png
+!logo.png
+!gerar_painel.py
+!gerar_painel_sheets.py
+!requirements.txt
+!deploy/
+!deploy/*
+
+# Segredos — NUNCA versionar (redundante com o '*' acima, mas por segurança)
+.env
+*.json
+!manifest.json
+google-sa.json
+racha-rea-*.json

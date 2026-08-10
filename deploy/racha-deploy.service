@@ -1,0 +1,10 @@
+[Unit]
+Description=Atualiza o Racha REA a partir do GitHub (git pull + pip)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=racha
+WorkingDirectory=/opt/racha/app
+ExecStart=/opt/racha/app/deploy/deploy.sh

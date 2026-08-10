@@ -1,0 +1,10 @@
+[Unit]
+Description=Verifica atualizações do Racha REA no GitHub
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

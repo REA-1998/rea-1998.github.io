@@ -1,0 +1,11 @@
+[Unit]
+Description=Gera o painel do Racha REA a partir do Google Sheets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=racha
+WorkingDirectory=/opt/racha/app
+EnvironmentFile=/opt/racha/app/.env
+ExecStart=/opt/racha/app/deploy/gerar-panel.sh
