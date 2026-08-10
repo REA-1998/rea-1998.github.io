@@ -1,0 +1,15 @@
+[Unit]
+Description=Bot do Telegram do Racha REA (foto da súmula -> IA -> Sheets -> painel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=racha
+WorkingDirectory=/opt/racha/app
+EnvironmentFile=/opt/racha/app/.env
+ExecStart=/opt/racha/venv/bin/python racha_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
