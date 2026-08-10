@@ -1,0 +1,7 @@
+# Scripts e units do servidor SEMPRE com quebra de linha LF (Unix),
+# senão o bash/systemd quebram no Linux.
+*.sh            text eol=lf
+*.service       text eol=lf
+*.timer         text eol=lf
+deploy/*        text eol=lf
+requirements.txt text eol=lf
