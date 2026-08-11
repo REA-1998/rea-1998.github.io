@@ -97,14 +97,18 @@ def aba_pagto(wb):
 
 # Último racha lançado (atualizar a cada súmula)
 ULTIMO_RACHA = {
-    "data": "01/08/2026",
-    "partidas": ["Partidas não anotadas — Amarelo venceu"],
-    "quadro": [
-        {"time": "Amarelo", "v": 1, "e": 0, "d": 0, "gols": 11},
-        {"time": "Azul", "v": 0, "e": 0, "d": 1, "gols": 4},
+    "data": "08/08/2026",
+    "partidas": [
+        "Azul 0 x 0 Amarelo", "Azul 1 x 1 Amarelo", "Azul 0 x 2 Amarelo",
+        "Azul 1 x 2 Amarelo", "Azul 1 x 1 Amarelo", "Azul 1 x 4 Amarelo",
+        "Azul 3 x 3 Amarelo", "Azul 2 x 2 Amarelo",
     ],
-    "bola_cheia": "Alexandre",
-    "bola_murcha": "Katito",
+    "quadro": [
+        {"time": "Amarelo", "v": 3, "e": 5, "d": 0, "gols": 15},
+        {"time": "Azul", "v": 0, "e": 5, "d": 3, "gols": 9},
+    ],
+    "bola_cheia": "Wesley",
+    "bola_murcha": "Cabeça",
 }
 
 APELIDOS = {
