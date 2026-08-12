@@ -31,13 +31,28 @@ sudo systemctl start racha-panel.service
 journalctl -u racha-panel.service -n 30 --no-pager
 ls -la /opt/racha/site   # deve ter index.html + assets
 
-# 5) Caddy: acrescentar o bloco (troque o domínio) e recarregar
+# 5) Caddy: acrescentar o bloco (racharea.com.br) e recarregar
 sudo nano /etc/caddy/Caddyfile   # cole o conteúdo de deploy/Caddyfile.racha
 sudo systemctl reload caddy
 ```
 
-Pronto: `https://racha.<dominio>` serve o painel, regenerado a cada 15 min (e o código se
+Pronto: `https://racharea.com.br` serve o painel, regenerado a cada 15 min (e o código se
 atualiza sozinho do GitHub a cada 5 min).
+
+## Bot do Telegram (foto da súmula → IA → Sheets → painel)
+O bot roda **só num lugar por vez** (o token do Telegram não aceita dois pollers ao mesmo
+tempo). A partir de agora ele mora **no servidor** — a versão da máquina de trabalho fica
+desligada. Passos (uma vez):
+```bash
+# preencher as 3 variáveis do bot no .env (descomente as linhas Fase 2)
+sudo nano /opt/racha/app/.env
+#   TELEGRAM_BOT_TOKEN=...   TELEGRAM_ALLOWED_ID=...   ANTHROPIC_API_KEY=...
+
+sudo systemctl enable --now racha-bot.service
+journalctl -u racha-bot.service -n 30 --no-pager   # deve mostrar "Application started"
+```
+Os valores das 3 variáveis o Mateus passa em separado (não vão no git). Depois de subir,
+mandar uma foto de súmula no Telegram para validar.
 
 ## Arquivos
 - `gerar-panel.sh` — gera o index.html do Sheets para `/opt/racha/site`
