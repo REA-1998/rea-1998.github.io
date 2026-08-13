@@ -11,6 +11,8 @@
 !gerar_painel.py
 !gerar_painel_sheets.py
 !racha_bot.py
+!pix_cobranca.py
+!pix_webhook.py
 !requirements.txt
 !deploy/
 !deploy/*
@@ -21,3 +23,6 @@
 !manifest.json
 google-sa.json
 racha-rea-*.json
+*.p12
+*.pem
+efi-*.pem
