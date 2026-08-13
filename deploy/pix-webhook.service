@@ -1,0 +1,15 @@
+[Unit]
+Description=Webhook Pix do Racha REA (Efi avisa pagamento -> grava no Sheets)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=racha
+WorkingDirectory=/opt/racha/app
+EnvironmentFile=/opt/racha/app/.env
+ExecStart=/opt/racha/venv/bin/python pix_webhook.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

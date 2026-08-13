@@ -1,8 +1,15 @@
-# Bloco do Racha REA — acrescente ao /etc/caddy/Caddyfile existente (troque o domínio).
+# Bloco do Racha REA — acrescente ao /etc/caddy/Caddyfile existente.
 # NÃO apaga o bloco da Riovare; só adiciona este.
 
-racha.riovare.com.br {
+racharea.com.br {
+    encode gzip
+
+    # Webhook do Pix (Efí avisa pagamento) -> serviço Flask local na porta 8090.
+    # NÃO faz strip do prefixo: o Flask espera o caminho /pix-racha/webhook/...
+    @pix path /pix-racha/*
+    reverse_proxy @pix 127.0.0.1:8090
+
+    # Painel estático (gerado a cada 15 min a partir do Google Sheets)
     root * /opt/racha/site
     file_server
-    encode gzip
 }

@@ -54,6 +54,48 @@ journalctl -u racha-bot.service -n 30 --no-pager   # deve mostrar "Application s
 Os valores das 3 variáveis o Mateus passa em separado (não vão no git). Depois de subir,
 mandar uma foto de súmula no Telegram para validar.
 
+## Pix automático (Efí) — cobrança por atleta + "pago" automático
+Fluxo: todo dia 1º o servidor gera 1 cobrança Pix por atleta ativo (aba `PixCobrancas`);
+o atleta paga pelo QR no site; a Efí chama o **webhook** e o pagamento cai sozinho na aba
+`Pagamentos`, e o painel se atualiza. Passos (uma vez):
+
+```bash
+# 1) dependências novas (já estão no requirements.txt: efipay, flask)
+sudo -u racha /opt/racha/venv/bin/pip install -r /opt/racha/app/requirements.txt
+
+# 2) certificado da Efí: converter o .p12 (sem senha) para .pem
+#    (o Mateus envia o arquivo producao-XXXXX.p12; copie para o servidor)
+openssl pkcs12 -in producao-945611.p12 -out /opt/racha/app/efi-racha.pem -nodes -passin pass:
+sudo chown racha:racha /opt/racha/app/efi-racha.pem && sudo chmod 600 /opt/racha/app/efi-racha.pem
+
+# 3) .env: preencher as variáveis da "Fase 3" (EFI_*, PIX_WEBHOOK_TOKEN aleatório, etc.)
+sudo nano /opt/racha/app/.env
+
+# 4) serviço do webhook + timer mensal das cobranças
+sudo cp /opt/racha/app/deploy/pix-webhook.service /etc/systemd/system/
+sudo cp /opt/racha/app/deploy/racha-cobranca.service /etc/systemd/system/
+sudo cp /opt/racha/app/deploy/racha-cobranca.timer   /etc/systemd/system/
+chmod +x /opt/racha/app/deploy/gerar-cobrancas.sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now pix-webhook.service racha-cobranca.timer
+curl -s localhost:8090/pix-racha/health    # deve responder {"ok": true}
+
+# 5) Caddy: acrescentar a rota do webhook (já incluída no deploy/Caddyfile.racha atualizado)
+sudo nano /etc/caddy/Caddyfile      # garanta o bloco @pix -> reverse_proxy 127.0.0.1:8090
+sudo systemctl reload caddy
+
+# 6) registrar a URL do webhook na Efí (troque <TOKEN> pelo PIX_WEBHOOK_TOKEN do .env)
+sudo -u racha /opt/racha/venv/bin/python /opt/racha/app/pix_webhook.py \
+     registrar https://racharea.com.br/pix-racha/webhook/<TOKEN>
+
+# gerar as cobranças do mês agora (teste): 
+sudo systemctl start racha-cobranca.service
+journalctl -u racha-cobranca.service -n 30 --no-pager
+```
+
+Para validar: pagar 1 centavo numa cobrança de teste e ver o pagamento aparecer na aba
+Pagamentos + no painel. O `PANEL_REFRESH_CMD` no `.env` faz o site atualizar na hora.
+
 ## Arquivos
 - `gerar-panel.sh` — gera o index.html do Sheets para `/opt/racha/site`
 - `deploy.sh` — `git pull` + `pip install` (auto-deploy)

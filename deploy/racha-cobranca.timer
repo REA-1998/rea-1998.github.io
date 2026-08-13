@@ -1,0 +1,9 @@
+[Unit]
+Description=Gera as cobranças Pix todo dia 1º do mês (Racha REA)
+
+[Timer]
+OnCalendar=*-*-01 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
