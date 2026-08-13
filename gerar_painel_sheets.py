@@ -11,7 +11,9 @@ Config via arquivo .env na mesma pasta (NUNCA versionado):
     OUTPUT         = (opcional) pasta onde salvar o index.html; padrão = pasta do script
 """
 import os
+import io
 import json
+import base64
 import datetime
 import collections
 from pathlib import Path
@@ -39,7 +41,55 @@ def carregar():
     creds = Credentials.from_service_account_file(
         SA_JSON, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     sh = gspread.authorize(creds).open_by_key(SHEET_ID)
-    return {a: sh.worksheet(a).get_all_records() for a in ABAS}
+    out = {a: sh.worksheet(a).get_all_records() for a in ABAS}
+    try:  # aba do Pix é opcional (só existe depois que o Pix automático foi ativado)
+        out["PixCobrancas"] = sh.worksheet("PixCobrancas").get_all_records()
+    except Exception:
+        out["PixCobrancas"] = []
+    return out
+
+
+def _mes_key(m):
+    try:
+        mm, yy = str(m).split()
+        return (int(yy), MESES.index(mm.upper()))
+    except Exception:
+        return (0, 0)
+
+
+def dados_cobrancas(T):
+    """Cobranças Pix ATIVAS do mês mais recente, com QR em data-URI, para o atleta
+    pagar direto no site (achando o nome dele). Vazio se o Pix ainda não foi ativado."""
+    recs = T.get("PixCobrancas", []) or []
+    if not recs:
+        return {"mes": "", "itens": []}
+    meses = sorted({str(r.get("mes", "")).strip() for r in recs if r.get("mes")}, key=_mes_key)
+    mes = meses[-1] if meses else ""
+    try:
+        import qrcode
+    except ImportError:
+        qrcode = None
+    itens = []
+    for r in recs:
+        if str(r.get("mes", "")).strip() != mes:
+            continue
+        pago = str(r.get("status", "")).strip().upper() == "CONCLUIDA"
+        copia = str(r.get("pix_copia_cola", "")).strip()
+        qr_uri = ""
+        if copia and qrcode and not pago:
+            img = qrcode.make(copia)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            qr_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        try:
+            valor_fmt = f"{float(str(r.get('valor', '0')).replace(',', '.')):.2f}".replace(".", ",")
+        except (TypeError, ValueError):
+            valor_fmt = str(r.get("valor", "")).strip()
+        itens.append({"nome": str(r.get("atleta", "")).strip().title(),
+                      "valor": valor_fmt,
+                      "copia": copia, "qr": qr_uri, "pago": pago})
+    itens.sort(key=lambda x: x["nome"])
+    return {"mes": mes, "itens": itens}
 
 
 def nf(x):
@@ -155,6 +205,7 @@ def montar(T):
         "ultimo_racha": G.ULTIMO_RACHA,
         "ranking": dados_ranking(T),
         "financeiro": dados_financeiro(T),
+        "cobrancas": dados_cobrancas(T),
         "pix": G.dados_pix(),
         "rsvp_url": G.RSVP_URL,
         "roster": G.ROSTER,

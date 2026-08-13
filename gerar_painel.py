@@ -478,6 +478,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <button data-aba="fiel">⭐ Atleta Fiel</button>
     <button data-aba="estat">📊 Estatísticas</button>
     <button data-aba="fin">💰 Financeiro</button>
+    <button data-aba="pagar">💳 Pagar</button>
     <button data-aba="ultimo">📋 Último racha</button>
   </nav>
 
@@ -558,6 +559,27 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p style="font-size:.72rem;color:#888;margin-top:8px">
       🟢 Em dia · 🟠 Mês em aberto (mensalidade atual, prazo até o fim do mês) · 🔴 Atrasado (deve mês anterior).<br>
       Mensalidade R$ 90 até o fim do mês (R$ 120 em atraso). Quem está devendo não joga a partir do 2º sábado do mês.</p>
+  </section>
+
+  <section id="pagar">
+    <h2>💳 Pagar minha mensalidade</h2>
+    <div class="rsvp-form">
+      <select id="pagar-nome"></select>
+      <div class="rsvp-msg" id="pagar-msg">Escolha seu nome para ver seu Pix.</div>
+    </div>
+    <div class="pixbox" id="pagar-card" style="display:none">
+      <div class="pixtxt">
+        <b>Mensalidade <span id="pagar-mes"></span></b>
+        <div class="pixsub">Valor: <b id="pagar-valor"></b></div>
+        <div class="pixkey" id="pagar-copia"></div>
+        <div class="pixbtns"><button id="btn-copia-pix">📋 Copiar código Pix</button></div>
+        <div class="pixok" id="pagar-ok"></div>
+      </div>
+      <img class="pixqr" id="pagar-qr" alt="QR Pix da sua mensalidade">
+    </div>
+    <p style="font-size:.72rem;color:#888;margin-top:8px">
+      Cada atleta tem um <b>Pix próprio</b> — ao pagar, sua mensalidade recebe baixa
+      <b>automática</b> no painel. Mensalidade R$ 90 (R$ 120 em atraso).</p>
   </section>
 
   <section id="ultimo">
@@ -675,6 +697,53 @@ document.getElementById('tb-fin').innerHTML = D.financeiro.map(x=>`
   <tr><td>${x.nome}</td>
     <td class="num"><span class="chip ${CLS_SITUACAO[x.situacao]}">${x.situacao}</span></td>
     <td class="num">${x.situacao==='Isento'?'—':'R$ '+fmt(x.saldo)}</td></tr>`).join('');
+
+// pagar mensalidade (cobrança individual via Pix)
+const COB = D.cobrancas || {mes:'', itens:[]};
+const cobMap = {}; COB.itens.forEach(i=>cobMap[i.nome]=i);
+const selPag = document.getElementById('pagar-nome');
+const pagCard = document.getElementById('pagar-card');
+const pagMsg = document.getElementById('pagar-msg');
+if(!COB.itens.length){
+  pagMsg.textContent = 'As cobranças do mês aparecem aqui assim que forem geradas. 😉';
+  selPag.style.display = 'none';
+} else {
+  selPag.innerHTML = '<option value="">— escolha seu nome —</option>' +
+    COB.itens.map(i=>`<option>${i.nome}</option>`).join('');
+  const salvo = localStorage.getItem('rea_nome');
+  if(salvo && cobMap[salvo]) selPag.value = salvo;
+}
+function mostrarCobranca(){
+  const it = cobMap[selPag.value];
+  if(!it){ pagCard.style.display='none'; if(COB.itens.length) pagMsg.textContent='Escolha seu nome para ver seu Pix.'; return; }
+  localStorage.setItem('rea_nome', selPag.value);
+  pagMsg.textContent = '';
+  pagCard.style.display = '';
+  document.getElementById('pagar-mes').textContent = COB.mes;
+  document.getElementById('pagar-valor').textContent = 'R$ ' + it.valor;
+  document.getElementById('pagar-copia').textContent = it.copia;
+  const qr = document.getElementById('pagar-qr');
+  const ok = document.getElementById('pagar-ok');
+  const btn = document.getElementById('btn-copia-pix');
+  if(it.pago){
+    qr.style.display='none'; btn.style.display='none';
+    ok.innerHTML = '✅ <b>Pago!</b> Mensalidade em dia.';
+  } else {
+    qr.style.display=''; qr.src = it.qr; btn.style.display=''; ok.textContent='';
+  }
+}
+if(COB.itens.length){
+  selPag.addEventListener('change', mostrarCobranca);
+  if(selPag.value) mostrarCobranca();
+}
+document.getElementById('btn-copia-pix').onclick = ()=>{
+  const it = cobMap[selPag.value]; if(!it) return;
+  navigator.clipboard.writeText(it.copia).then(()=>{
+    const el=document.getElementById('pagar-ok');
+    el.textContent='✅ Código Pix copiado! Cole no seu banco.';
+    setTimeout(()=>{el.textContent='';},2500);
+  });
+};
 
 // último racha
 const U = D.ultimo_racha;
