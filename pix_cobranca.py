@@ -136,17 +136,30 @@ def main():
         }
         try:
             resp = efi.pix_create_charge(params={"txid": txid}, body=body)
+            if not isinstance(resp, dict):
+                # a Efí devolve um objeto de erro (ex.: UnauthorizedError) em vez de dict
+                amb = "sandbox/homologação" if os.environ.get("EFI_SANDBOX","false").lower()=="true" else "produção"
+                raise SystemExit(
+                    f"\n! Efí NÃO autorizou ({type(resp).__name__}). Resposta: {resp}\n"
+                    f"  Ambiente configurado: {amb} (EFI_SANDBOX).\n"
+                    f"  Verifique se CLIENT_ID/SECRET, o certificado (.pem) e EFI_SANDBOX\n"
+                    f"  são TODOS do MESMO ambiente. Para cobrança real: keys de PRODUÇÃO,\n"
+                    f"  cert de PRODUÇÃO e EFI_SANDBOX=false. Abortando (nada foi criado).")
             loc_id = resp.get("loc", {}).get("id", "")
             location = resp.get("location", "")
             copia = resp.get("pixCopiaECola", "")
             if not copia and loc_id:
                 qr = efi.pix_generate_qrcode(params={"id": loc_id})
-                copia = qr.get("qrcode", "")
+                copia = qr.get("qrcode", "") if isinstance(qr, dict) else ""
             novas_linhas.append([mes, atleta, txid, f"{float(MENSALIDADE):.2f}",
                                  resp.get("status","ATIVA"), str(loc_id), location,
                                  copia, agora, "", ""])
             criadas += 1
             print(f"  + criada: {atleta:<12} R$ {MENSALIDADE}  txid={txid}")
+        except SystemExit:
+            if novas_linhas:
+                pix_ws.append_rows(novas_linhas, value_input_option="RAW")
+            raise
         except Exception as e:
             print(f"  ! ERRO em {atleta}: {e}")
 
