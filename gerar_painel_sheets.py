@@ -46,7 +46,33 @@ def carregar():
         out["PixCobrancas"] = sh.worksheet("PixCobrancas").get_all_records()
     except Exception:
         out["PixCobrancas"] = []
+    try:  # aba do último racha (o bot grava; se não existir, usa o fixo do gerar_painel)
+        out["UltimoRacha"] = sh.worksheet("UltimoRacha").get_all_records()
+    except Exception:
+        out["UltimoRacha"] = []
     return out
+
+
+def dados_ultimo(T):
+    """Último racha vindo da aba UltimoRacha (gravada pelo bot); fallback: constante fixa."""
+    recs = T.get("UltimoRacha") or []
+    if not recs or not str(recs[0].get("data", "")).strip():
+        return G.ULTIMO_RACHA
+    r = recs[0]
+    try:
+        partidas = json.loads(str(r.get("partidas_json") or "[]"))
+        quadro = json.loads(str(r.get("quadro_json") or "[]"))
+    except json.JSONDecodeError:
+        return G.ULTIMO_RACHA
+    quadro_fmt = [{"time": str(q.get("time", "")).strip().title(),
+                   "v": int(q.get("v") or 0), "e": int(q.get("e") or 0),
+                   "d": int(q.get("d") or 0), "gols": int(q.get("gols") or 0)}
+                  for q in quadro]
+    return {"data": str(r.get("data", "")).strip(),
+            "partidas": [str(p).title() for p in partidas],
+            "quadro": quadro_fmt,
+            "bola_cheia": str(r.get("bola_cheia", "")).strip().title(),
+            "bola_murcha": str(r.get("bola_murcha", "")).strip().title()}
 
 
 def _mes_key(m):
@@ -212,7 +238,7 @@ def montar(T):
     return {
         "gerado_em": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
         "aviso_topo": G.AVISO_TOPO,
-        "ultimo_racha": G.ULTIMO_RACHA,
+        "ultimo_racha": dados_ultimo(T),
         "ranking": dados_ranking(T),
         "financeiro": dados_financeiro(T),
         "cobrancas": dados_cobrancas(T),

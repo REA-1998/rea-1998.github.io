@@ -72,6 +72,8 @@ Responda SÓ com JSON neste formato:
   "times": {"AZUL": ["NOME",...], "AMARELO": [...], "ROSA": [...]},
   "goleiros": {"AZUL": "NOME ou vazio", "AMARELO": "...", "ROSA": "..."},
   "resultado_por_time": {"AZUL": pontos, "AMARELO": pontos, "ROSA": pontos},
+  "partidas": ["AZUL 1 x 2 AMARELO", "..."],
+  "quadro": [{"time": "AZUL", "v": N, "e": N, "d": N, "gols": N}],
   "gols": [{"atleta": "NOME", "gols": N}],
   "cartoes": [{"atleta": "NOME", "tipo": "amarelo|azul|vermelho"}],
   "bola_cheia": "NOME do TROFÉU CHEIA",
@@ -81,6 +83,9 @@ Responda SÓ com JSON neste formato:
   "incertezas": ["..."]
 }
 - resultado_por_time = da tabela VIT/EMP/DERR: pontos = VIT×2 + EMP×1 (derrota vale 0). Some por time.
+- partidas = TODOS os placares jogo a jogo, na ordem, no formato "TIME1 G1 x G2 TIME2".
+- quadro = 1 item por time que jogou, com v/e/d da tabela VIT/EMP/DERR e gols = total de gols
+  do time somando as partidas.
 - CONFERÊNCIA OBRIGATÓRIA: a soma dos gols dos jogadores de cada time DEVE bater com o total
   de gols do time nas PARTIDAS. Se não bater, revise a coluna GOL (provavelmente perdeu um gol);
   se mesmo assim não fechar, anote em "incertezas"."""
@@ -222,6 +227,12 @@ def formata_resumo(d: dict) -> str:
     if d.get("resultado_por_time"):
         L.append("🏆 Vitórias (pts): " + ", ".join(
             f"{t} {p}" for t, p in d["resultado_por_time"].items() if p))
+    if d.get("quadro"):
+        L.append("📊 Quadro: " + " | ".join(
+            f"{q.get('time')} {q.get('v',0)}V {q.get('e',0)}E {q.get('d',0)}D ({q.get('gols',0)} gols)"
+            for q in d["quadro"]))
+    if d.get("partidas"):
+        L.append("🎯 Partidas: " + "; ".join(d["partidas"]))
     gols = d.get("gols") or []
     if gols:
         L.append("⚽ Gols: " + ", ".join(f"{g['atleta']} {g['gols']}" for g in gols))
@@ -286,6 +297,28 @@ def gravar_lancamentos(d: dict):
         tipo = "racha"
         wss.append_row([data, tipo, "sim", "sim", ""], value_input_option="RAW")
     return len(linhas)
+
+
+def gravar_ultimo_racha(d: dict):
+    """Grava data/partidas/quadro/bolas na aba UltimoRacha (o site lê de lá)."""
+    sh = sheet()
+    try:
+        ws = sh.worksheet("UltimoRacha")
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title="UltimoRacha", rows=5, cols=6)
+    data = d.get("data") or datetime.date.today().isoformat()
+    if "-" in data:  # AAAA-MM-DD -> DD/MM/AAAA
+        a, m, dd = data.split("-")
+        data = f"{dd}/{m}/{a}"
+    ws.clear()
+    ws.update(values=[
+        ["data", "partidas_json", "quadro_json", "bola_cheia", "bola_murcha"],
+        [data,
+         json.dumps(d.get("partidas") or [], ensure_ascii=False),
+         json.dumps(d.get("quadro") or [], ensure_ascii=False),
+         str(d.get("bola_cheia") or ""),
+         str(d.get("bola_murcha") or "")],
+    ], range_name="A1", value_input_option="RAW")
 
 
 def republicar():
@@ -355,19 +388,28 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("❌ Cancelado. Manda a foto de novo quando quiser.")
         return
     await q.edit_message_text("⏳ Lançando no painel...")
+    duplicado = False
+    n = 0
     try:
         n = await asyncio.to_thread(gravar_lancamentos, d)
+    except RuntimeError as e:  # data já lançada — segue só com o quadro do último racha
+        duplicado = True
+        await q.message.reply_text(f"ℹ️ {e}")
     except Exception as e:
         await q.message.reply_text(f"❌ Erro ao lançar: {e}")
         return
     try:
+        await asyncio.to_thread(gravar_ultimo_racha, d)
+    except Exception as e:
+        await q.message.reply_text(f"⚠️ Não consegui atualizar o quadro 'Último racha': {e}")
+    try:
         await asyncio.to_thread(republicar)
-        await q.message.reply_text(
-            f"✅ Lançado! {n} atletas gravados e painel republicado.\n"
-            "https://racharea.com.br")
+        ok = ("✅ Quadro 'Último racha' atualizado e painel republicado.\n" if duplicado else
+              f"✅ Lançado! {n} atletas gravados, último racha atualizado e painel republicado.\n")
+        await q.message.reply_text(ok + "https://racharea.com.br")
     except Exception as e:
         await q.message.reply_text(
-            f"⚠️ Dados GRAVADOS ({n} atletas) — mas falhou regenerar o painel: {e}\n"
+            f"⚠️ Dados GRAVADOS — mas falhou regenerar o painel: {e}\n"
             "Sem pânico: o site atualiza sozinho em até 15 min. NÃO reenvie a súmula.")
 
 
