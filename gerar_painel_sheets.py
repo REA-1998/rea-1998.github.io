@@ -103,11 +103,15 @@ def dados_cobrancas(T):
         import qrcode
     except ImportError:
         qrcode = None
+    ativos = {str(a.get("nome", "")).strip().upper() for a in T.get("Atletas", [])
+              if str(a.get("ativo", "")).strip().lower() == "sim"}
     itens = []
     for r in recs:
         if str(r.get("mes", "")).strip() != mes:
             continue
         atleta_up = str(r.get("atleta", "")).strip().upper()
+        if atleta_up not in ativos:  # saiu do racha -> não exibe cobrança
+            continue
         pago = (str(r.get("status", "")).strip().upper() == "CONCLUIDA"
                 or atleta_up in quitados)
         copia = str(r.get("pix_copia_cola", "")).strip()
@@ -234,6 +238,18 @@ def dados_financeiro(T):
     return linhas
 
 
+def roster_ativos(T):
+    """Lista de presença derivada do cadastro: ativo=sim e joga≠não.
+    Sair do racha = marcar ativo=não na aba Atletas (some de tudo)."""
+    nomes = []
+    for r in T["Atletas"]:
+        ativo = str(r.get("ativo", "")).strip().lower() == "sim"
+        joga = str(r.get("joga", "")).strip().lower() != "não"
+        if ativo and joga:
+            nomes.append(str(r["nome"]).strip().title())
+    return sorted(nomes)
+
+
 def montar(T):
     return {
         "gerado_em": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -244,7 +260,7 @@ def montar(T):
         "cobrancas": dados_cobrancas(T),
         "pix": G.dados_pix(),
         "rsvp_url": G.RSVP_URL,
-        "roster": G.ROSTER,
+        "roster": roster_ativos(T),
     }
 
 
