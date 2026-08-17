@@ -13,6 +13,7 @@ Config via .env (mesma pasta):
     GOOGLE_SA_JSON, SHEET_ID
 """
 import os
+import sys
 import json
 import base64
 import asyncio
@@ -240,6 +241,12 @@ def gravar_lancamentos(d: dict):
     """Acrescenta uma linha por atleta presente na aba Lancamentos + a data em Sabados."""
     sh = sheet()
     data = d.get("data") or datetime.date.today().isoformat()
+    # proteção contra duplo-lançamento (ex.: Confirmar clicado 2x após um erro)
+    ja = [r for r in sh.worksheet("Lancamentos").get_all_values()[1:] if r and r[0] == data]
+    if ja:
+        raise RuntimeError(
+            f"o racha de {data} já tem {len(ja)} lançamentos na planilha — não gravei de novo. "
+            "Se precisar relançar, apague as linhas dessa data primeiro.")
     gols = {g["atleta"].strip().upper(): g["gols"] for g in (d.get("gols") or [])}
     cart_map = {"amarelo": -1, "azul": -2, "vermelho": -5}
     cart = {}
@@ -282,7 +289,8 @@ def gravar_lancamentos(d: dict):
 
 
 def republicar():
-    subprocess.run(["python", "gerar_painel_sheets.py"], cwd=APP_DIR, check=True)
+    # sys.executable = o Python que roda o bot (funciona no venv do servidor e no Windows)
+    subprocess.run([sys.executable, "gerar_painel_sheets.py"], cwd=APP_DIR, check=True)
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -349,12 +357,18 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.edit_message_text("⏳ Lançando no painel...")
     try:
         n = await asyncio.to_thread(gravar_lancamentos, d)
+    except Exception as e:
+        await q.message.reply_text(f"❌ Erro ao lançar: {e}")
+        return
+    try:
         await asyncio.to_thread(republicar)
         await q.message.reply_text(
             f"✅ Lançado! {n} atletas gravados e painel republicado.\n"
-            "https://rea-1998.github.io")
+            "https://racharea.com.br")
     except Exception as e:
-        await q.message.reply_text(f"❌ Erro ao lançar: {e}")
+        await q.message.reply_text(
+            f"⚠️ Dados GRAVADOS ({n} atletas) — mas falhou regenerar o painel: {e}\n"
+            "Sem pânico: o site atualiza sozinho em até 15 min. NÃO reenvie a súmula.")
 
 
 def main():
