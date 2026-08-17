@@ -65,6 +65,14 @@ def dados_cobrancas(T):
         return {"mes": "", "itens": []}
     meses = sorted({str(r.get("mes", "")).strip() for r in recs if r.get("mes")}, key=_mes_key)
     mes = meses[-1] if meses else ""
+    # quem já está em dia no mês da cobrança (pagou manual/dinheiro) não deve ver QR
+    quitados = set()
+    for p in T.get("Pagamentos", []):
+        if str(p.get("mes", "")).strip().upper() != mes.upper():
+            continue
+        devido = nf(p.get("s_a")) + nf(p.get("mensalidade")) + nf(p.get("multa_chu"))
+        if devido > 0 and nf(p.get("valor_pago")) >= devido:
+            quitados.add(str(p.get("atleta", "")).strip().upper())
     try:
         import qrcode
     except ImportError:
@@ -73,7 +81,9 @@ def dados_cobrancas(T):
     for r in recs:
         if str(r.get("mes", "")).strip() != mes:
             continue
-        pago = str(r.get("status", "")).strip().upper() == "CONCLUIDA"
+        atleta_up = str(r.get("atleta", "")).strip().upper()
+        pago = (str(r.get("status", "")).strip().upper() == "CONCLUIDA"
+                or atleta_up in quitados)
         copia = str(r.get("pix_copia_cola", "")).strip()
         qr_uri = ""
         if copia and qrcode and not pago:
