@@ -258,7 +258,6 @@ def montar(T):
         "ranking": dados_ranking(T),
         "financeiro": dados_financeiro(T),
         "cobrancas": dados_cobrancas(T),
-        "pix": G.dados_pix(),
         "rsvp_url": G.RSVP_URL,
         "roster": roster_ativos(T),
     }

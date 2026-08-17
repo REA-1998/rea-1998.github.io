@@ -543,15 +543,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   <section id="fin">
     <div class="pixbox">
       <div class="pixtxt">
-        <b>💠 Pagar mensalidade via Pix</b>
-        <div class="pixsub">Aponte a câmera no QR ou copie a chave</div>
-        <div class="pixkey" id="pix-chave"></div>
+        <b>💳 Quer pagar sua mensalidade?</b>
+        <div class="pixsub">Use a aba <b>Pagar</b> — cada atleta tem seu Pix próprio
+          e a baixa é <b>automática</b> no painel.</div>
         <div class="pixbtns">
-          <button id="btn-chave">📋 Copiar chave Pix</button>
+          <button id="btn-ir-pagar">💳 Ir para Pagar</button>
         </div>
-        <div class="pixok" id="pix-ok"></div>
       </div>
-      <img class="pixqr" id="pix-qr" alt="QR Pix">
     </div>
     <h2>💰 Financeiro — mês atual</h2>
     <table><thead><tr><th>Atleta</th><th class="num">Situação</th><th class="num">Saldo (R$)</th></tr></thead>
@@ -679,17 +677,11 @@ document.getElementById('rsvp-vou').onclick=()=>enviarRSVP('Vou');
 document.getElementById('rsvp-nao').onclick=()=>enviarRSVP('Não vou');
 carregarPresenca();
 
-// pix
-document.getElementById('pix-qr').src = 'data:image/png;base64,' + D.pix.qr;
-document.getElementById('pix-chave').textContent = D.pix.chave;
-function copiar(txt, msg){
-  navigator.clipboard.writeText(txt).then(()=>{
-    const el = document.getElementById('pix-ok');
-    el.textContent = msg;
-    setTimeout(()=>{el.textContent='';}, 2500);
-  });
-}
-document.getElementById('btn-chave').onclick = ()=>copiar(D.pix.chave, '✅ Chave copiada! Cole no Pix do seu banco.');
+// atalho Financeiro -> aba Pagar
+document.getElementById('btn-ir-pagar').onclick = ()=>{
+  document.querySelector('nav button[data-aba="pagar"]').click();
+  window.scrollTo({top:0, behavior:'smooth'});
+};
 
 // financeiro
 const CLS_SITUACAO = {'Em dia':'emdia','Atrasado':'atrasado','Mês em aberto':'aberto','Isento':'isento'};
