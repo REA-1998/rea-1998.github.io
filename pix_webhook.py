@@ -135,9 +135,10 @@ def registrar_webhook(url):
         "certificate": os.environ["EFI_CERT_PATH"],
         "sandbox": os.environ.get("EFI_SANDBOX", "false").lower() == "true",
     })
-    params = {"chave": os.environ["EFI_PIX_KEY"], "headers": {"x-skip-mtls-checking": "true"}}
-    body = {"webhookUrl": url}
-    resp = efi.pix_config_webhook(params=params, body=body)
+    resp = efi.pix_config_webhook(
+        params={"chave": os.environ["EFI_PIX_KEY"]},
+        body={"webhookUrl": url},
+        headers={"x-skip-mtls-checking": "true"})
     print("Registro do webhook:", json.dumps(resp, indent=2, ensure_ascii=False))
 
 
