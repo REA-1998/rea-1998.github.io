@@ -14,9 +14,9 @@ Regras implementadas:
  g) (ver d) Egnaldo na linha = zagueiro nível 4
  i) determinístico: mesma lista => mesmos times
 
-Titulares de cada time = goleiro + os 6 de linha com MAIS PONTOS DE ATLETA FIEL
-(regra do REA: quem tem mais pontos tem preferência para começar jogando);
-empate -> maior nível -> ordem alfabética.
+Titulares de cada time = goleiro + os 6 de linha de MAIOR NÍVEL (decisão do Mateus, 21/08/2026);
+empate -> mais pontos de atleta fiel -> ordem alfabética. Os pontos de fiel são exibidos
+(sem nível) para orientar a ordem de quem joga/entra.
 
 Uso pelo bot:  montar(confirmados, T, n_times=None)  -> dict
 """
@@ -74,9 +74,9 @@ def decidir_n_times(n_conf, forcar=None):
 
 
 def _titulares(time):
-    """Marca titulares: goleiro + 6 de linha com mais pontos de fiel (desempate nível, nome)."""
+    """Marca titulares: goleiro + 6 de linha de MAIOR NÍVEL (desempate: pontos de fiel, nome)."""
     linha = [a for a in time["atletas"] if not a["em_gol"]]
-    linha.sort(key=lambda a: (-a["fiel_pts"], -a["nivel"], a["nome"]))
+    linha.sort(key=lambda a: (-a["nivel"], -a["fiel_pts"], a["nome"]))
     for i, a in enumerate(linha):
         a["titular"] = i < TITULARES_LINHA
     for a in time["atletas"]:
@@ -240,7 +240,7 @@ def formatar(res, sabado=""):
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
         L.append(f"ℹ️ {av}")
-    L.append("\n(número na frente = pontos de atleta fiel; ⭐ = atleta fiel — quem tem mais pontos começa jogando)")
+    L.append("\n(número na frente = pontos de atleta fiel nos últimos 8 sábados; ⭐ = atleta fiel)")
     return "\n".join(L)
 
 

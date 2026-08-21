@@ -533,8 +533,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     <h2 id="times-tit">👥 Times de sábado</h2>
     <div class="times-grid" id="times-grid"></div>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
-      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados) — quem tem mais pontos
-      começa jogando. ⭐ = Atleta Fiel. 🧤 = goleiro. Reservas entram na sequência.</p>
+      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados).
+      ⭐ = Atleta Fiel. 🧤 = goleiro. Reservas entram na sequência.</p>
   </section>
 
   <section id="craque">
