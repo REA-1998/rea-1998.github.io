@@ -473,6 +473,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <nav>
     <button data-aba="presenca" class="ativo">✅ Presença</button>
+    <button data-aba="times">👥 Times</button>
     <button data-aba="craque">🏆 Craque</button>
     <button data-aba="artilharia">⚽ Artilharia</button>
     <button data-aba="fiel">⭐ Atleta Fiel</button>
@@ -509,6 +510,31 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
       Confirme até as <b>13h de sábado</b>. Quem confirma e falta paga multa de R$ 20.
       Quem está devendo o mês anterior não confirma a partir do 2º sábado do mês.</p>
+  </section>
+
+  <section id="times">
+    <style>
+      .times-grid{display:flex;flex-wrap:wrap;gap:12px}
+      .time-card{flex:1 1 240px;background:#fff;border-radius:12px;padding:12px 14px;
+                 box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:6px solid #999}
+      .tc-azul{border-top-color:#1e88e5}.tc-amarelo{border-top-color:#fdd835}
+      .tc-rosa{border-top-color:#ec407a}.tc-verde{border-top-color:#43a047}
+      .time-card h3{margin:0 0 8px;font-size:1rem}
+      .time-card ul{list-style:none;margin:0;padding:0}
+      .time-card li{padding:4px 0;border-bottom:1px dashed #eee;display:flex;gap:8px;align-items:center}
+      .time-card li:last-child{border-bottom:0}
+      .fpts{min-width:26px;text-align:right;font-weight:bold;color:#1a5fb4}
+      .fstar{color:#e6a700}
+      .pos{font-size:.7rem;color:#888;border:1px solid #ddd;border-radius:6px;padding:0 5px}
+      .reservas{margin-top:8px;font-size:.85rem;color:#555}
+      .reservas b{color:#333}
+      .fiel-li{background:#fff8e1}
+    </style>
+    <h2 id="times-tit">👥 Times de sábado</h2>
+    <div class="times-grid" id="times-grid"></div>
+    <p style="font-size:.72rem;color:#888;margin-top:10px">
+      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados) — quem tem mais pontos
+      começa jogando. ⭐ = Atleta Fiel. 🧤 = goleiro. Reservas entram na sequência.</p>
   </section>
 
   <section id="craque">
@@ -646,17 +672,22 @@ function rsvpMsg(t,cls){ const e=document.getElementById('rsvp-msg'); e.textCont
 function pintarLista(d){
   sabadoAtual = d.sabado;
   document.getElementById('presenca-tit').textContent = '✅ Confirmar presença — sábado ' + d.sabado;
-  const vou = (d.vou||[]).filter(n=>ROSTER.includes(n));
-  const nao = (d.naovou||[]).filter(n=>ROSTER.includes(n));
+  // ordem por posição (goleiro, zagueiro, volante, meia, atacante) e rótulo da posição
+  const POSI = D.posicoes || {};
+  const POS_ORD = {GOL:0, ZAG:1, VOL:2, MEI:3, ATA:4};
+  const porPos = (a,b)=> (POS_ORD[POSI[a]]??9)-(POS_ORD[POSI[b]]??9) || a.localeCompare(b,'pt');
+  const li = n => `<li>${n}${POSI[n]?` <span class="pos">${POSI[n]}</span>`:''}</li>`;
+  const vou = (d.vou||[]).filter(n=>ROSTER.includes(n)).sort(porPos);
+  const nao = (d.naovou||[]).filter(n=>ROSTER.includes(n)).sort(porPos);
   document.getElementById('n-vou').textContent = vou.length;
   document.getElementById('n-nao').textContent = nao.length;
-  document.getElementById('lst-vou').innerHTML = vou.length? vou.map(n=>`<li>${n}</li>`).join('') : '<li class="vazio">ninguém ainda</li>';
-  document.getElementById('lst-nao').innerHTML = nao.length? nao.map(n=>`<li>${n}</li>`).join('') : '<li class="vazio">—</li>';
-  // quem ainda não respondeu (nem Vou nem Não vou), em ordem alfabética
+  document.getElementById('lst-vou').innerHTML = vou.length? vou.map(li).join('') : '<li class="vazio">ninguém ainda</li>';
+  document.getElementById('lst-nao').innerHTML = nao.length? nao.map(li).join('') : '<li class="vazio">—</li>';
+  // quem ainda não respondeu (nem Vou nem Não vou)
   const respondeu = new Set([...vou, ...nao]);
-  const pend = ROSTER.filter(n=>!respondeu.has(n)).sort((a,b)=>a.localeCompare(b,'pt'));
+  const pend = ROSTER.filter(n=>!respondeu.has(n)).sort(porPos);
   document.getElementById('n-pend').textContent = pend.length;
-  document.getElementById('lst-pend').innerHTML = pend.length? pend.map(n=>`<li>${n}</li>`).join('') : '<li class="vazio">todos responderam! 🎉</li>';
+  document.getElementById('lst-pend').innerHTML = pend.length? pend.map(li).join('') : '<li class="vazio">todos responderam! 🎉</li>';
 }
 function carregarPresenca(){
   fetch(RSVP_URL+'?action=list').then(r=>r.json()).then(pintarLista).catch(()=>rsvpMsg('',''));
@@ -746,6 +777,25 @@ document.getElementById('quadro').innerHTML = U.quadro.map(q=>`
 document.getElementById('placar').innerHTML = U.partidas.map((p,i)=>`<span>${i+1}· ${p}</span>`).join('');
 document.getElementById('cheia').textContent = U.bola_cheia;
 document.getElementById('murcha').textContent = U.bola_murcha;
+
+// times de sábado (montados pelo bot)
+const TM = D.times || {sabado:'', times:[]};
+if(TM.times.length){
+  document.getElementById('times-tit').textContent = '👥 Times — sábado ' + TM.sabado;
+  document.getElementById('times-grid').innerHTML = TM.times.map(t=>{
+    const tit = t.atletas.filter(a=>a.titular), res = t.atletas.filter(a=>!a.titular);
+    const row = a => `<li class="${a.fiel?'fiel-li':''}"><span class="fpts">${a.fiel_pts}</span>`+
+      `<span class="fstar">${a.fiel?'⭐':''}</span>`+
+      `<span>${a.goleiro?'🧤 ':''}${a.nome}</span><span class="pos">${a.pos}</span></li>`;
+    return `<div class="time-card tc-${t.cor.toLowerCase()}"><h3>${t.cor.toUpperCase()}</h3>`+
+      `<ul>${tit.map(row).join('')}</ul>`+
+      (res.length? `<div class="reservas"><b>Reservas:</b> ${res.map(a=>`${a.fiel?'⭐':''}${a.nome} (${a.pos}, ${a.fiel_pts})`).join(' · ')}</div>`:'')+
+      `</div>`;
+  }).join('');
+} else {
+  document.getElementById('times-grid').innerHTML =
+    '<p style="color:#888">Os times aparecem aqui assim que forem montados (normalmente no sábado, após as confirmações). 😉</p>';
+}
 
 // abas
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{

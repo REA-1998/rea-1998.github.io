@@ -28,6 +28,8 @@ load_dotenv(Path(__file__).parent / ".env")
 
 import anthropic
 import gspread
+import requests
+import montar_times as M
 from google.oauth2.service_account import Credentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, MessageHandler,
@@ -90,7 +92,8 @@ Responda SÓ com JSON neste formato:
   de gols do time nas PARTIDAS. Se não bater, revise a coluna GOL (provavelmente perdeu um gol);
   se mesmo assim não fechar, anote em "incertezas"."""
 
-pendentes = {}  # chat_id -> dict extraído
+pendentes = {}  # chat_id -> dict extraído (súmula)
+pendentes_times = {}  # chat_id -> {"res": resultado, "sabado": "DD/MM/AAAA"}
 
 
 def sheet():
@@ -326,6 +329,101 @@ def republicar():
     subprocess.run([sys.executable, "gerar_painel_sheets.py"], cwd=APP_DIR, check=True)
 
 
+# ---------------- montagem de times ----------------
+def buscar_confirmados():
+    """(sabado, [nomes]) do sistema de presença do site."""
+    import gerar_painel as G
+    r = requests.get(G.RSVP_URL, params={"action": "list"}, timeout=30)
+    r.raise_for_status()
+    d = r.json()
+    return d.get("sabado", ""), list(d.get("vou") or [])
+
+
+def montar_times_do_dia(n_times=None, lista=None):
+    import gerar_painel_sheets as S
+    T = S.carregar()
+    if lista:
+        sabado, nomes = "", lista
+        try:
+            sabado, _ = buscar_confirmados()
+        except Exception:
+            pass
+    else:
+        sabado, nomes = buscar_confirmados()
+    res = M.montar(nomes, T, n_times)
+    return sabado, res
+
+
+def ajustar_times(res: dict, texto: str) -> dict:
+    """Ajuste em linguagem natural ('troca X com Y', 'põe Z no azul') -> nova atribuição."""
+    atual = {t["cor"]: [a["nome"].title() for a in t["atletas"]] for t in res["times"]}
+    prompt = (
+        "Estes são os times atuais de um racha (JSON {COR: [nomes]}):\n"
+        + json.dumps(atual, ensure_ascii=False)
+        + f'\n\nO usuário pediu este ajuste: "{texto}"\n\n'
+        "Aplique o ajuste e responda SÓ com o JSON completo atualizado no MESMO formato "
+        "{COR: [nomes]}, mantendo todos os nomes (não invente nem remova ninguém, a não ser "
+        "que o pedido seja explicitamente tirar alguém). Use as mesmas cores.")
+    msg = anthropic_client.messages.create(
+        model="claude-opus-5", max_tokens=4000,
+        output_config={"effort": "low"},
+        messages=[{"role": "user", "content": prompt}])
+    novo = _parse_json(next((b.text for b in msg.content if b.type == "text"), ""))
+    import gerar_painel_sheets as S
+    T = S.carregar()
+    return M.montar_manual(novo, T)
+
+
+def gravar_times(res: dict, sabado: str):
+    """Grava os times na aba 'Times' (o site lê de lá). Sem níveis."""
+    sh = sheet()
+    try:
+        ws = sh.worksheet("Times")
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title="Times", rows=60, cols=9)
+    ws.clear()
+    ws.update(values=[["sabado", "cor", "atleta", "posicao", "goleiro", "titular", "fiel_pts", "fiel", "ordem"]]
+              + M.para_linhas(res, sabado), range_name="A1", value_input_option="RAW")
+
+
+def _kb_times():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("📣 Publicar no site", callback_data="times_ok"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="times_no")]])
+
+
+async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """'/times' ou 'times' [2|3|4] [: nome, nome, ...]  -> monta os times dos confirmados."""
+    if not so_eu(update):
+        return
+    texto = (update.message.text or "").strip()
+    corpo = texto.split(None, 1)[1] if " " in texto else ""
+    n_times, lista = None, None
+    if ":" in corpo:
+        cab, nomes = corpo.split(":", 1)
+        lista = [n.strip() for n in nomes.replace("\n", ",").split(",") if n.strip()]
+        corpo = cab
+    for tok in corpo.split():
+        if tok.isdigit():
+            n_times = int(tok)
+    await update.message.reply_text("🧮 Buscando confirmados e montando os times...")
+    try:
+        sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Não consegui montar: {e}")
+        return
+    if res["n_confirmados"] < 2:
+        await update.message.reply_text(
+            f"Só {res['n_confirmados']} confirmado(s) para {sabado or 'sábado'} — ainda não dá pra montar. "
+            "Pode mandar a lista manual: `times: Nome, Nome, ...`")
+        return
+    pendentes_times[update.effective_chat.id] = {"res": res, "sabado": sabado}
+    await update.message.reply_text(M.formatar(res, sabado), reply_markup=_kb_times())
+    await update.message.reply_text(
+        M.formatar_privado(res) + "\n\nPra ajustar, me escreve (ex.: \"troca o Wesley com o Zé\", "
+        "\"põe o Enzo no amarelo\", \"times 3\"). Depois toque em Publicar.")
+
+
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not so_eu(update):
         return
@@ -358,11 +456,27 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not so_eu(update):
         return
     cid = update.effective_chat.id
+    txt = (update.message.text or "").strip()
+    if txt.lower().startswith("times") or txt.lower().startswith("/times"):
+        return await cmd_times(update, ctx)
     d = pendentes.get(cid)
+    if not d and cid in pendentes_times:
+        # ajuste dos times por chat
+        await update.message.reply_text("✏️ Ajustando os times...")
+        try:
+            res = await asyncio.to_thread(ajustar_times, pendentes_times[cid]["res"], txt)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Não consegui ajustar: {e}")
+            return
+        pendentes_times[cid]["res"] = res
+        await update.message.reply_text(M.formatar(res, pendentes_times[cid]["sabado"]), reply_markup=_kb_times())
+        await update.message.reply_text(M.formatar_privado(res))
+        return
     if not d:
         await update.message.reply_text(
-            "Manda a foto da súmula que eu leio. Depois do resumo, se algo estiver errado, "
-            "é só me escrever a correção (ex.: \"Walter 1 gol\", \"Charles foi 3\", \"tira o atraso\").")
+            "Manda a foto da súmula que eu leio (ou escreve *times* pra eu montar os times dos "
+            "confirmados). Depois do resumo, se algo estiver errado, é só me escrever a correção "
+            "(ex.: \"Walter 1 gol\", \"troca o Zé com o Enzo\").")
         return
     await update.message.reply_text("✏️ Aplicando sua correção...")
     try:
@@ -383,7 +497,23 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     if q.from_user.id != ALLOWED_ID:
         return
-    d = pendentes.pop(q.message.chat.id, None)
+    cid = q.message.chat.id
+    if q.data in ("times_ok", "times_no"):
+        pt = pendentes_times.pop(cid, None)
+        if q.data == "times_no" or not pt:
+            await q.edit_message_text("❌ Times descartados. Escreve *times* quando quiser montar de novo.")
+            return
+        await q.edit_message_text("⏳ Publicando os times no site...")
+        try:
+            await asyncio.to_thread(gravar_times, pt["res"], pt["sabado"])
+            await asyncio.to_thread(republicar)
+            await q.message.reply_text(
+                "✅ Times publicados! Manda o link pro grupo:\nhttps://racharea.com.br (aba 👥 Times)\n\n"
+                "Pode copiar a mensagem dos times acima pro WhatsApp também (ela não mostra níveis).")
+        except Exception as e:
+            await q.message.reply_text(f"❌ Erro ao publicar: {e}")
+        return
+    d = pendentes.pop(cid, None)
     if q.data == "no" or d is None:
         await q.edit_message_text("❌ Cancelado. Manda a foto de novo quando quiser.")
         return
@@ -417,6 +547,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("times", cmd_times))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_button))

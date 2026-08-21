@@ -13,6 +13,7 @@
 !racha_bot.py
 !pix_cobranca.py
 !pix_webhook.py
+!montar_times.py
 !requirements.txt
 !deploy/
 !deploy/*

@@ -50,7 +50,47 @@ def carregar():
         out["UltimoRacha"] = sh.worksheet("UltimoRacha").get_all_records()
     except Exception:
         out["UltimoRacha"] = []
+    try:  # times do sábado (o bot grava ao publicar)
+        out["Times"] = sh.worksheet("Times").get_all_records()
+    except Exception:
+        out["Times"] = []
     return out
+
+
+POS_ABREV = {"GOLEIRO": "GOL", "ZAGUEIRO": "ZAG", "VOLANTE": "VOL", "MEIA": "MEI", "ATACANTE": "ATA"}
+
+
+def dados_posicoes(T):
+    """{Nome: 'GOL'|'ZAG'|'VOL'|'MEI'|'ATA'} para ordenar/rotular a lista de presença. SEM nível."""
+    out = {}
+    for r in T.get("Atletas", []):
+        nome = str(r.get("nome", "")).strip().title()
+        pos = str(r.get("posicao", "")).strip().upper()
+        if nome and pos:
+            out[nome] = POS_ABREV.get(pos, pos[:3])
+    return out
+
+
+def dados_times(T):
+    """Times do sábado gravados pelo bot (aba Times). SEM nível — só nome/pos/fiel."""
+    recs = T.get("Times") or []
+    if not recs:
+        return {"sabado": "", "times": []}
+    ordem_cor = ["AZUL", "AMARELO", "ROSA", "VERDE"]
+    por_cor = {}
+    sabado = ""
+    for r in sorted(recs, key=lambda x: (str(x.get("cor", "")), int(x.get("ordem") or 0))):
+        cor = str(r.get("cor", "")).strip().upper()
+        sabado = sabado or str(r.get("sabado", "")).strip()
+        por_cor.setdefault(cor, []).append({
+            "nome": str(r.get("atleta", "")).strip().title(),
+            "pos": str(r.get("posicao", "")).strip().upper(),
+            "goleiro": str(r.get("goleiro", "")).strip().lower() == "sim",
+            "titular": str(r.get("titular", "")).strip().lower() == "sim",
+            "fiel_pts": int(r.get("fiel_pts") or 0),
+            "fiel": str(r.get("fiel", "")).strip().lower() == "sim"})
+    times = [{"cor": c.title(), "atletas": por_cor[c]} for c in ordem_cor if c in por_cor]
+    return {"sabado": sabado, "times": times}
 
 
 def dados_ultimo(T):
@@ -260,6 +300,8 @@ def montar(T):
         "cobrancas": dados_cobrancas(T),
         "rsvp_url": G.RSVP_URL,
         "roster": roster_ativos(T),
+        "posicoes": dados_posicoes(T),
+        "times": dados_times(T),
     }
 
 
