@@ -325,8 +325,13 @@ def gravar_ultimo_racha(d: dict):
 
 
 def republicar():
-    # sys.executable = o Python que roda o bot (funciona no venv do servidor e no Windows)
-    subprocess.run([sys.executable, "gerar_painel_sheets.py"], cwd=APP_DIR, check=True)
+    """Regenera o site. No servidor usa o script oficial (publica em /opt/racha/site,
+    a pasta servida pelo Caddy); no Windows roda o gerador direto (OUTPUT do .env)."""
+    script = APP_DIR / "deploy" / "gerar-panel.sh"
+    if os.name == "posix" and script.exists():
+        subprocess.run(["bash", str(script)], check=True)
+    else:
+        subprocess.run([sys.executable, "gerar_painel_sheets.py"], cwd=APP_DIR, check=True)
 
 
 # ---------------- montagem de times ----------------
