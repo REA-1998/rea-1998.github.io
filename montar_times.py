@@ -297,11 +297,16 @@ def montar_manual(por_cor, T):
     cad = _cadastro(T)
     fiel = _fiel_pontos(T)
     times, nao = [], []
-    for cor in CORES:
-        nomes = por_cor.get(cor) or por_cor.get(cor.title()) or por_cor.get(cor.lower())
-        if not nomes:
-            continue
-        t = {"cor": cor, "atletas": [], "goleiro": None}
+    normalizado = {str(k).strip().upper(): v for k, v in (por_cor or {}).items() if v}
+    ordem = [c for c in CORES if c in normalizado] + [c for c in normalizado if c not in CORES]
+    # se o nº de times bate com o padrão, força as cores oficiais na ordem (evita "VERDE" indevido)
+    if len(ordem) <= len(CORES):
+        mapa = dict(zip(ordem, CORES))
+    else:
+        mapa = {c: c for c in ordem}
+    for cor_orig in ordem:
+        nomes = normalizado[cor_orig]
+        t = {"cor": mapa[cor_orig], "atletas": [], "goleiro": None}
         for nome in nomes:
             c = cad.get(_chave(nome))
             if not c:

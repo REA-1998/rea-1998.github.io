@@ -368,7 +368,8 @@ def ajustar_times(res: dict, texto: str) -> dict:
         + f'\n\nO usuário pediu este ajuste: "{texto}"\n\n'
         "Aplique o ajuste e responda SÓ com o JSON completo atualizado no MESMO formato "
         "{COR: [nomes]}, mantendo todos os nomes (não invente nem remova ninguém, a não ser "
-        "que o pedido seja explicitamente tirar alguém). Use as mesmas cores.")
+        "que o pedido seja explicitamente tirar alguém). Use EXATAMENTE as mesmas chaves/cores "
+        "do JSON de entrada — não renomeie nenhuma cor.")
     msg = anthropic_client.messages.create(
         model="claude-opus-5", max_tokens=4000,
         output_config={"effort": "low"},
