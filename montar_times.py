@@ -27,10 +27,10 @@ import random
 import unicodedata
 import itertools
 
-CORES = ["AZUL", "AMARELO", "ROSA", "VERDE"]
+CORES = ["AZUL", "AMARELO", "ROSA", "VASCO"]
 POS_ORDEM = ["GOLEIRO", "ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"]
 POS_ABREV = {"GOLEIRO": "GOL", "ZAGUEIRO": "ZAG", "VOLANTE": "VOL", "MEIA": "MEI", "ATACANTE": "ATA"}
-EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VERDE": "🟢"}
+EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VASCO": "⚫"}
 TITULARES_LINHA = 6
 EGNALDO_LINHA = ("ZAGUEIRO", 4)
 

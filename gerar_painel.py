@@ -518,7 +518,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       .time-card{flex:1 1 240px;background:#fff;border-radius:12px;padding:12px 14px;
                  box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:6px solid #999}
       .tc-azul{border-top-color:#1e88e5}.tc-amarelo{border-top-color:#fdd835}
-      .tc-rosa{border-top-color:#ec407a}.tc-verde{border-top-color:#43a047}
+      .tc-rosa{border-top-color:#ec407a}.tc-vasco{border-top-color:#111}
       .time-card h3{margin:0 0 8px;font-size:1rem}
       .time-card ul{list-style:none;margin:0;padding:0}
       .time-card li{padding:4px 0;border-bottom:1px dashed #eee;display:flex;gap:8px;align-items:center}
