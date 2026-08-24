@@ -1,24 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-Montagem de times do Racha REA — determinística, pelas regras do Mateus.
+Montagem de times do Racha REA — determinística, pelas regras do Mateus (rev. 21/08/2026).
 
-Regras implementadas:
- a) time = 6 de linha + 1 goleiro + reservas
- b) mínimo 2 times, máximo 3 (4 só em torneio, via parâmetro)
- c) 3 times só se cada time ficar com pelo menos 1 reserva (>= 24 confirmados)
- d) Egnaldo vira linha (ZAGUEIRO, nível 4) quando sobra goleiro (mais goleiros que times)
- e) soma dos níveis dos TITULARES o mais próxima possível entre os times (prioridade),
-    soma total em segundo lugar
- f) distribuição por posição de trás pra frente (ZAG -> VOL -> MEI -> ATA): quem tem menos
-    defensores recebe o próximo defensor; faltando zagueiro pega volante, e assim por diante
- g) (ver d) Egnaldo na linha = zagueiro nível 4
- i) determinístico: mesma lista => mesmos times
-
-Titulares de cada time = goleiro + os 6 de linha de MAIOR NÍVEL (decisão do Mateus, 21/08/2026);
-empate -> mais pontos de atleta fiel -> ordem alfabética. Os pontos de fiel são exibidos
-(sem nível) para orientar a ordem de quem joga/entra.
-
-Uso pelo bot:  montar(confirmados, T, n_times=None)  -> dict
+REGRAS:
+ 1) Time = 6 titulares de linha + 1 goleiro + reservas.
+ 2) QUEM DECIDE o nº de times é o Mateus, no comando: "2times", "3times" ou "4times"
+    (4 = torneio). Sem número o bot pergunta.
+ 3) Titulares de linha = os 6 de MAIOR NÍVEL do time (desempate: pontos de fiel, nome).
+ 4) EQUILÍBRIO: a soma dos níveis dos TITULARES DE LINHA de cada time deve ser igual ou
+    o mais parecida possível (prioridade máxima); soma da linha toda em 2º lugar.
+ 5) GOLEIROS entram DEPOIS, como compensação: o melhor goleiro (Alexandre) vai pro time
+    com MENOR soma de linha titular; o próximo pro segundo menor; e assim por diante.
+ 6) Com os 3 goleiros presentes e 2 times, sobra goleiro: Egnaldo joga na LINHA como
+    ZAGUEIRO nível 4. Se um dos goleiros faltar, Egnaldo é goleiro normalmente
+    (a ordem é sempre por nível: Alexandre > Iroshi > Egnaldo).
+ 7) POSIÇÕES divididas por quantidade: cada posição repartida o mais igual possível
+    (diferença máxima de 1 por posição entre times). Distribuição de trás pra frente
+    (ZAG→VOL→MEI→ATA); time com menos defensores tem preferência pelo próximo volante etc.
+ 8) TOTAL de atletas de linha por time: diferença máxima de 1.
+ 9) Com 3 times, o ideal é cada time ter ao menos 1 reserva (aviso se não der).
+10) Determinístico: mesma lista => mesmos times.
+11) NÍVEIS: aparecem SÓ na mensagem do Telegram pro Mateus (formatar_telegram).
+    A versão pública (site e texto pro grupo, formatar_publico) NUNCA mostra nível.
 """
 import unicodedata
 import itertools
@@ -26,6 +29,7 @@ import itertools
 CORES = ["AZUL", "AMARELO", "ROSA", "VERDE"]
 POS_ORDEM = ["GOLEIRO", "ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"]
 POS_ABREV = {"GOLEIRO": "GOL", "ZAGUEIRO": "ZAG", "VOLANTE": "VOL", "MEIA": "MEI", "ATACANTE": "ATA"}
+EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VERDE": "🟢"}
 TITULARES_LINHA = 6
 EGNALDO_LINHA = ("ZAGUEIRO", 4)
 
@@ -36,7 +40,6 @@ def _chave(s):
 
 
 def _cadastro(T):
-    """{chave: {nome, pos, nivel, goleiro}} a partir da aba Atletas (só ativos que jogam)."""
     out = {}
     for r in T.get("Atletas", []):
         nome = str(r.get("nome", "")).strip()
@@ -57,7 +60,6 @@ def _cadastro(T):
 
 
 def _fiel_pontos(T):
-    """{NOME: (pontos_ultimos_8, eh_fiel)} reaproveitando a regra do painel."""
     try:
         import gerar_painel_sheets as S
         rk = S.dados_ranking(T)
@@ -69,28 +71,33 @@ def _fiel_pontos(T):
 def decidir_n_times(n_conf, forcar=None):
     if forcar:
         return max(2, min(4, int(forcar)))
-    # 3 times exigem 21 titulares + 1 reserva por time (regra c)
     return 3 if n_conf >= 24 else 2
 
 
-def _titulares(time):
-    """Marca titulares: goleiro + 6 de linha de MAIOR NÍVEL (desempate: pontos de fiel, nome)."""
-    linha = [a for a in time["atletas"] if not a["em_gol"]]
+def _titulares(t):
+    """Marca titulares (6 de linha de maior nível) e calcula as somas DA LINHA."""
+    linha = [a for a in t["atletas"] if not a["em_gol"]]
     linha.sort(key=lambda a: (-a["nivel"], -a["fiel_pts"], a["nome"]))
     for i, a in enumerate(linha):
         a["titular"] = i < TITULARES_LINHA
-    for a in time["atletas"]:
+    for a in t["atletas"]:
         if a["em_gol"]:
             a["titular"] = True
-    time["soma_titular"] = sum(a["nivel"] for a in time["atletas"] if a["titular"])
-    time["soma_total"] = sum(a["nivel"] for a in time["atletas"])
-    time["n_linha"] = len(linha)
+    t["soma_linha_titular"] = sum(a["nivel"] for a in linha if a["titular"])
+    t["soma_linha_total"] = sum(a["nivel"] for a in linha)
+    t["n_linha"] = len(linha)
 
 
 def _objetivo(times):
-    st = [t["soma_titular"] for t in times]
-    tt = [t["soma_total"] for t in times]
-    return (max(st) - min(st)) * 10 + (max(tt) - min(tt))
+    lt = [t["soma_linha_titular"] for t in times]
+    tot = [t["soma_linha_total"] for t in times]
+    return (max(lt) - min(lt)) * 100 + (max(tot) - min(tot))
+
+
+def _ordenar_exibicao(t):
+    t["atletas"].sort(key=lambda a: (0 if a["em_gol"] else 1, 0 if a["titular"] else 1,
+                                     POS_ORDEM.index(a["pos"]) if a["pos"] in POS_ORDEM else 9,
+                                     -a["nivel"], a["nome"]))
 
 
 def montar(confirmados, T, n_times=None):
@@ -99,11 +106,11 @@ def montar(confirmados, T, n_times=None):
     avisos, nao_reconhecidos, jogadores = [], [], []
     vistos = set()
     for nome in confirmados:
-        k = _chave(nome)
-        if k in vistos:
+        k_ = _chave(nome)
+        if k_ in vistos:
             continue
-        vistos.add(k)
-        c = cad.get(k)
+        vistos.add(k_)
+        c = cad.get(k_)
         if not c:
             nao_reconhecidos.append(str(nome))
             continue
@@ -114,15 +121,11 @@ def montar(confirmados, T, n_times=None):
 
     n = len(jogadores)
     k = decidir_n_times(n, n_times)
-    if n_times and n_times == 3 and n < 24:
-        avisos.append(f"Com {n} confirmados, 3 times ficam sem reserva em algum time (regra c).")
 
-    # ---- goleiros ----
+    # ---- goleiros: ordem por nível (Alexandre > Iroshi > Egnaldo); sobra vira zagueiro 4 ----
     gks = sorted([j for j in jogadores if j["goleiro"]], key=lambda j: (-j["nivel"], j["nome"]))
     if len(gks) > k:
-        # sobra goleiro: Egnaldo (ou o de menor nível) vai pra linha como zagueiro nível 4
-        sobra = gks[k:]
-        for j in sobra:
+        for j in gks[k:]:
             j["pos"], j["nivel"] = EGNALDO_LINHA
             avisos.append(f"{j['nome'].title()} joga na linha (zagueiro) — sobrou goleiro.")
         gks = gks[:k]
@@ -131,55 +134,39 @@ def montar(confirmados, T, n_times=None):
     linha = [j for j in jogadores if not j["em_gol"]]
 
     times = [{"cor": CORES[i], "atletas": [], "goleiro": None} for i in range(k)]
-    # goleiros: o melhor goleiro vai pro time que (ainda) não tem — alterna cores; empatar depois via swaps
-    for i, j in enumerate(gks):
-        times[i]["atletas"].append(j)
-        times[i]["goleiro"] = j["nome"]
-    if len(gks) < k:
-        for t in times[len(gks):]:
-            avisos.append(f"Time {t['cor'].title()} sem goleiro fixo — linha reveza no gol.")
 
-    # ---- linha: de trás pra frente (regra f), o time mais "carente" recebe primeiro ----
-    def cont(t, poss):
+    # ---- linha: cotas por posição (dif. máx. 1) e de trás pra frente ----
+    def cont_pos(t, pos):
+        return sum(1 for a in t["atletas"] if not a["em_gol"] and a["pos"] == pos)
+    def cont_acum(t, poss):
         return sum(1 for a in t["atletas"] if not a["em_gol"] and a["pos"] in poss)
-    def soma(t):
-        return sum(a["nivel"] for a in t["atletas"])
+    def n_linha(t):
+        return sum(1 for a in t["atletas"] if not a["em_gol"])
+    def soma_linha(t):
+        return sum(a["nivel"] for a in t["atletas"] if not a["em_gol"])
+
     acumulado = []
+    conhecidos = {"ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"}
     for pos in ["ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"]:
         acumulado.append(pos)
         grupo = sorted([j for j in linha if j["pos"] == pos], key=lambda j: (-j["nivel"], j["nome"]))
-        outros = [j for j in linha if j["pos"] not in POS_ORDEM]  # posição desconhecida -> trata como meia
         if pos == "MEIA":
-            grupo += sorted(outros, key=lambda j: (-j["nivel"], j["nome"]))
+            grupo += sorted([j for j in linha if j["pos"] not in conhecidos],
+                            key=lambda j: (-j["nivel"], j["nome"]))
         for j in grupo:
-            # chave: menos jogadores "de trás até esta posição", depois menor soma, depois índice
-            alvo = min(range(k), key=lambda i: (cont(times[i], acumulado), len(times[i]["atletas"]),
-                                               soma(times[i]), i))
+            alvo = min(range(k), key=lambda i: (cont_pos(times[i], pos),      # cota da posição
+                                                cont_acum(times[i], acumulado),  # menos defensores primeiro
+                                                n_linha(times[i]),               # total linha (dif. máx. 1)
+                                                soma_linha(times[i]), i))
             times[alvo]["atletas"].append(j)
-
-    # tamanhos: garante diferença máxima de 1 entre times (move o de menor nível se preciso)
-    def tamanhos_ok():
-        tam = [len(t["atletas"]) for t in times]
-        return max(tam) - min(tam) <= 1
-    guard = 0
-    while not tamanhos_ok() and guard < 50:
-        guard += 1
-        maior = max(range(k), key=lambda i: (len(times[i]["atletas"]), i))
-        menor = min(range(k), key=lambda i: (len(times[i]["atletas"]), i))
-        cand = sorted([a for a in times[maior]["atletas"] if not a["em_gol"]], key=lambda a: (a["nivel"], a["nome"]))
-        if not cand:
-            break
-        times[maior]["atletas"].remove(cand[0])
-        times[menor]["atletas"].append(cand[0])
 
     for t in times:
         _titulares(t)
 
-    # ---- refinamento: trocas 1x1 de mesma posição que reduzem o desequilíbrio (determinístico) ----
+    # ---- refinamento: trocas 1x1 de MESMA posição (preserva cotas e totais) ----
     melhor = _objetivo(times)
-    melhorou = True
-    passos = 0
-    while melhorou and passos < 200:
+    melhorou, passos = True, 0
+    while melhorou and passos < 300:
         melhorou = False
         passos += 1
         for i, j in itertools.combinations(range(k), 2):
@@ -192,10 +179,8 @@ def montar(confirmados, T, n_times=None):
                     _titulares(times[i]); _titulares(times[j])
                     obj = _objetivo(times)
                     if obj < melhor:
-                        melhor = obj
-                        melhorou = True
+                        melhor, melhorou = obj, True
                         break
-                    # desfaz
                     times[i]["atletas"].remove(b); times[j]["atletas"].remove(a)
                     times[i]["atletas"].append(a); times[j]["atletas"].append(b)
                     _titulares(times[i]); _titulares(times[j])
@@ -204,38 +189,69 @@ def montar(confirmados, T, n_times=None):
             if melhorou:
                 break
 
-    # ordem de exibição dentro do time: goleiro, titulares por posição, depois reservas
+    # ---- goleiros como compensação: melhor goleiro no time de MENOR linha titular ----
+    ordem_fraco = sorted(range(k), key=lambda i: (times[i]["soma_linha_titular"],
+                                                  times[i]["soma_linha_total"], i))
+    for idx, gk in enumerate(gks):
+        t = times[ordem_fraco[idx]]
+        t["atletas"].append(gk)
+        t["goleiro"] = gk["nome"]
+    for i in range(len(gks), k):
+        avisos.append(f"Time {times[ordem_fraco[i]]['cor'].title()} sem goleiro fixo — linha reveza no gol.")
+
     for t in times:
-        t["atletas"].sort(key=lambda a: (0 if a["em_gol"] else 1, 0 if a["titular"] else 1,
-                                         POS_ORDEM.index(a["pos"]) if a["pos"] in POS_ORDEM else 9,
-                                         -a["fiel_pts"], a["nome"]))
+        _titulares(t)
+        _ordenar_exibicao(t)
+
+    if k == 3 and any(t["n_linha"] <= TITULARES_LINHA for t in times):
+        avisos.append("Com 3 times, nem todo time ficou com reserva de linha.")
 
     return {"n_confirmados": n, "n_times": k, "times": times,
-            "nao_reconhecidos": nao_reconhecidos, "avisos": avisos,
-            "objetivo": melhor}
+            "nao_reconhecidos": nao_reconhecidos, "avisos": avisos, "objetivo": melhor}
 
 
-EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VERDE": "🟢"}
+# ---------------- formatação ----------------
+def formatar_telegram(res, sabado=""):
+    """SÓ PRO MATEUS: mostra o NÍVEL de cada jogador e a soma da linha titular."""
+    L = [f"👥 Times — sábado {sabado}".strip() if sabado else "👥 Times",
+         f"{res['n_confirmados']} confirmados → {res['n_times']} times",
+         "🔒 versão com níveis — NÃO encaminhar (após publicar te mando a versão limpa)"]
+    for t in res["times"]:
+        L.append("")
+        L.append(f"{EMOJI.get(t['cor'],'')} {t['cor']} — Σ linha titular: {t['soma_linha_titular']}"
+                 f" (linha toda: {t['soma_linha_total']})")
+        for a in [x for x in t["atletas"] if x["titular"]]:
+            tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
+            star = " ⭐" if a["fiel"] else ""
+            L.append(f"  {a['nivel']} · {tag} {a['nome'].title()} (fiel {a['fiel_pts']}{star})")
+        reservas = [x for x in t["atletas"] if not x["titular"]]
+        if reservas:
+            L.append("  — reservas: " + ", ".join(
+                f"{a['nivel']} {a['nome'].title()} ({POS_ABREV.get(a['pos'], a['pos'][:3])})"
+                for a in reservas))
+    if res["nao_reconhecidos"]:
+        L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
+    for av in res["avisos"]:
+        L.append(f"ℹ️ {av}")
+    return "\n".join(L)
 
 
-def formatar(res, sabado=""):
-    """Texto COMPARTILHÁVEL (Telegram/WhatsApp): SEM níveis, SEM somas.
-    Mostra nome, posição, pontos de atleta fiel e ⭐ se for fiel."""
+def formatar_publico(res, sabado=""):
+    """Versão SEM NÍVEIS (grupo/WhatsApp). Nome, posição, pontos de fiel e ⭐."""
     L = [f"👥 Times — sábado {sabado}".strip() if sabado else "👥 Times",
          f"{res['n_confirmados']} confirmados → {res['n_times']} times"]
     for t in res["times"]:
         L.append("")
         L.append(f"{EMOJI.get(t['cor'],'')} {t['cor']}")
-        tit = [a for a in t["atletas"] if a["titular"]]
-        res_ = [a for a in t["atletas"] if not a["titular"]]
-        for a in tit:
+        for a in [x for x in t["atletas"] if x["titular"]]:
             tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
             star = " ⭐" if a["fiel"] else ""
             L.append(f"  {a['fiel_pts']:>2}{star} {tag} {a['nome'].title()}")
-        if res_:
+        reservas = [x for x in t["atletas"] if not x["titular"]]
+        if reservas:
             L.append("  — reservas: " + ", ".join(
                 f"{a['nome'].title()} ({POS_ABREV.get(a['pos'], a['pos'][:3])}, fiel {a['fiel_pts']}{' ⭐' if a['fiel'] else ''})"
-                for a in res_))
+                for a in reservas))
     if res["nao_reconhecidos"]:
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
@@ -244,15 +260,11 @@ def formatar(res, sabado=""):
     return "\n".join(L)
 
 
-def formatar_privado(res):
-    """Linha de equilíbrio SÓ PRA VOCÊ (níveis): não encaminhar."""
-    partes = [f"{EMOJI.get(t['cor'],'')} {t['cor'].title()}: titulares {t['soma_titular']} · total {t['soma_total']}"
-              for t in res["times"]]
-    return "🔒 Só pra você (não encaminhar) — equilíbrio por nível:\n" + "\n".join(partes)
+formatar = formatar_publico  # compatibilidade
 
 
 def para_linhas(res, sabado):
-    """Linhas para a aba 'Times' do Sheets (sem nível)."""
+    """Linhas para a aba 'Times' do Sheets (SEM nível)."""
     rows = []
     for t in res["times"]:
         for i, a in enumerate(t["atletas"], start=1):
@@ -281,27 +293,25 @@ def montar_manual(por_cor, T):
                                  "goleiro": c["goleiro"], "fiel_pts": fp, "fiel": ef,
                                  "em_gol": False, "titular": False})
         times.append(t)
-    # goleiro do time = melhor goleiro presente; goleiro sobrando vira zagueiro nível 4
     for t in times:
         gks = sorted([a for a in t["atletas"] if a["goleiro"]], key=lambda a: (-a["nivel"], a["nome"]))
         if gks:
-            gks[0]["em_gol"] = True; t["goleiro"] = gks[0]["nome"]
+            gks[0]["em_gol"] = True
+            t["goleiro"] = gks[0]["nome"]
             for g in gks[1:]:
                 g["pos"], g["nivel"] = EGNALDO_LINHA
         _titulares(t)
-        t["atletas"].sort(key=lambda a: (0 if a["em_gol"] else 1, 0 if a["titular"] else 1,
-                                         POS_ORDEM.index(a["pos"]) if a["pos"] in POS_ORDEM else 9,
-                                         -a["fiel_pts"], a["nome"]))
+        _ordenar_exibicao(t)
     n = sum(len(t["atletas"]) for t in times)
     return {"n_confirmados": n, "n_times": len(times), "times": times,
             "nao_reconhecidos": nao, "avisos": [], "objetivo": _objetivo(times) if times else 0}
 
 
 if __name__ == "__main__":
-    import sys, json
+    import sys
     sys.path.insert(0, ".")
     import gerar_painel_sheets as S
     T = S.carregar()
     nomes = sys.argv[1:] or ["Alexandre", "Egnaldo", "Francês", "Marlon", "Mateus", "Pagode", "Wesley", "Zé"]
     r = montar(nomes, T)
-    print(formatar(r))
+    print(formatar_telegram(r))

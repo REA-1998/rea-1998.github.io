@@ -392,21 +392,28 @@ def _kb_times():
         InlineKeyboardButton("❌ Cancelar", callback_data="times_no")]])
 
 
+import re as _re
+
+
 async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """'/times' ou 'times' [2|3|4] [: nome, nome, ...]  -> monta os times dos confirmados."""
+    """'2times' / '3times' / '4times' [: nome, nome, ...] -> monta os times dos confirmados.
+    O número de times é decisão do Mateus (obrigatório)."""
     if not so_eu(update):
         return
     texto = (update.message.text or "").strip()
-    corpo = texto.split(None, 1)[1] if " " in texto else ""
-    n_times, lista = None, None
-    if ":" in corpo:
-        cab, nomes = corpo.split(":", 1)
+    lista = None
+    if ":" in texto:
+        cab, nomes = texto.split(":", 1)
         lista = [n.strip() for n in nomes.replace("\n", ",").split(",") if n.strip()]
-        corpo = cab
-    for tok in corpo.split():
-        if tok.isdigit():
-            n_times = int(tok)
-    await update.message.reply_text("🧮 Buscando confirmados e montando os times...")
+        texto = cab
+    m = _re.search(r"([234])\s*times|times\s*([234])", texto.lower())
+    n_times = int(m.group(1) or m.group(2)) if m else None
+    if not n_times:
+        await update.message.reply_text(
+            "Quantos times? Me manda: *2times*, *3times* ou *4times* (torneio).\n"
+            "Dica: dá pra mandar lista manual também — ex.: `3times: Pagode, Walter, ...`")
+        return
+    await update.message.reply_text(f"🧮 Buscando confirmados e montando {n_times} times...")
     try:
         sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista)
     except Exception as e:
@@ -415,13 +422,13 @@ async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if res["n_confirmados"] < 2:
         await update.message.reply_text(
             f"Só {res['n_confirmados']} confirmado(s) para {sabado or 'sábado'} — ainda não dá pra montar. "
-            "Pode mandar a lista manual: `times: Nome, Nome, ...`")
+            "Pode mandar a lista manual: `2times: Nome, Nome, ...`")
         return
     pendentes_times[update.effective_chat.id] = {"res": res, "sabado": sabado}
-    await update.message.reply_text(M.formatar(res, sabado), reply_markup=_kb_times())
+    await update.message.reply_text(M.formatar_telegram(res, sabado), reply_markup=_kb_times())
     await update.message.reply_text(
-        M.formatar_privado(res) + "\n\nPra ajustar, me escreve (ex.: \"troca o Wesley com o Zé\", "
-        "\"põe o Enzo no amarelo\", \"times 3\"). Depois toque em Publicar.")
+        "Pra ajustar, me escreve (ex.: \"troca o Wesley com o Zé\", \"põe o Enzo no amarelo\", "
+        "ou \"3times\" pra remontar). Depois toque em Publicar — aí te mando a versão limpa pro grupo.")
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -457,7 +464,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     cid = update.effective_chat.id
     txt = (update.message.text or "").strip()
-    if txt.lower().startswith("times") or txt.lower().startswith("/times"):
+    if _re.match(r"^/?([234]\s*)?times", txt.lower()):
         return await cmd_times(update, ctx)
     d = pendentes.get(cid)
     if not d and cid in pendentes_times:
@@ -469,8 +476,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Não consegui ajustar: {e}")
             return
         pendentes_times[cid]["res"] = res
-        await update.message.reply_text(M.formatar(res, pendentes_times[cid]["sabado"]), reply_markup=_kb_times())
-        await update.message.reply_text(M.formatar_privado(res))
+        await update.message.reply_text(M.formatar_telegram(res, pendentes_times[cid]["sabado"]),
+                                        reply_markup=_kb_times())
         return
     if not d:
         await update.message.reply_text(
@@ -508,8 +515,9 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(gravar_times, pt["res"], pt["sabado"])
             await asyncio.to_thread(republicar)
             await q.message.reply_text(
-                "✅ Times publicados! Manda o link pro grupo:\nhttps://racharea.com.br (aba 👥 Times)\n\n"
-                "Pode copiar a mensagem dos times acima pro WhatsApp também (ela não mostra níveis).")
+                "✅ Times publicados no site!\n\n📋 Versão limpa pro grupo (SEM níveis) — pode encaminhar:")
+            await q.message.reply_text(
+                M.formatar_publico(pt["res"], pt["sabado"]) + "\n\n🌐 https://racharea.com.br (aba 👥 Times)")
         except Exception as e:
             await q.message.reply_text(f"❌ Erro ao publicar: {e}")
         return
