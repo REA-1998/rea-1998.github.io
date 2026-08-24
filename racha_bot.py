@@ -339,7 +339,7 @@ def buscar_confirmados():
     return d.get("sabado", ""), list(d.get("vou") or [])
 
 
-def montar_times_do_dia(n_times=None, lista=None):
+def montar_times_do_dia(n_times=None, lista=None, egnaldo=None):
     import gerar_painel_sheets as S
     T = S.carregar()
     if lista:
@@ -350,7 +350,7 @@ def montar_times_do_dia(n_times=None, lista=None):
             pass
     else:
         sabado, nomes = buscar_confirmados()
-    res = M.montar(nomes, T, n_times)
+    res = M.montar(nomes, T, n_times, egnaldo=egnaldo)
     return sabado, res
 
 
@@ -406,16 +406,25 @@ async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cab, nomes = texto.split(":", 1)
         lista = [n.strip() for n in nomes.replace("\n", ",").split(",") if n.strip()]
         texto = cab
-    m = _re.search(r"([234])\s*times|times\s*([234])", texto.lower())
+    tl = texto.lower()
+    m = _re.search(r"([234])\s*times|times\s*([234])", tl)
     n_times = int(m.group(1) or m.group(2)) if m else None
+    egnaldo = None
+    if "egnaldo" in tl:
+        if "linha" in tl:
+            egnaldo = "linha"
+        elif "gol" in tl:
+            egnaldo = "gol"
     if not n_times:
         await update.message.reply_text(
-            "Quantos times? Me manda: *2times*, *3times* ou *4times* (torneio).\n"
-            "Dica: dá pra mandar lista manual também — ex.: `3times: Pagode, Walter, ...`")
+            "Quantos times? Me manda: *2times*, *3times* ou *4times*.\n"
+            "Opções: `2times egnaldo linha` ou `2times egnaldo gol` (senão decido pela regra); "
+            "lista manual: `3times: Pagode, Walter, ...`")
         return
-    await update.message.reply_text(f"🧮 Buscando confirmados e montando {n_times} times...")
+    extra = f" (Egnaldo: {egnaldo})" if egnaldo else ""
+    await update.message.reply_text(f"🧮 Buscando confirmados e montando {n_times} times{extra}...")
     try:
-        sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista)
+        sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista, egnaldo)
     except Exception as e:
         await update.message.reply_text(f"❌ Não consegui montar: {e}")
         return
