@@ -89,6 +89,19 @@ def dados_times(T):
             "titular": str(r.get("titular", "")).strip().lower() == "sim",
             "fiel_pts": int(r.get("fiel_pts") or 0),
             "fiel": str(r.get("fiel", "")).strip().lower() == "sim"})
+    # Quem começa jogando é decidido AQUI (não pelo que ficou gravado): dentro de cada time,
+    # os 6 de linha com MAIS pontos de Atleta Fiel jogam; os de menos pontos ficam reserva.
+    ord_pos = {"GOL": 0, "ZAG": 1, "VOL": 2, "MEI": 3, "ATA": 4}
+    for cor, ats in por_cor.items():
+        linha = [a for a in ats if not a["goleiro"]]
+        linha.sort(key=lambda a: (-a["fiel_pts"], a["nome"]))
+        for i, a in enumerate(linha):
+            a["titular"] = i < 6
+        for a in ats:
+            if a["goleiro"]:
+                a["titular"] = True
+        ats.sort(key=lambda a: (0 if a["goleiro"] else 1, 0 if a["titular"] else 1,
+                                ord_pos.get(a["pos"], 9), -a["fiel_pts"], a["nome"]))
     times = [{"cor": c.title(), "atletas": por_cor[c]} for c in ordem_cor if c in por_cor]
     return {"sabado": sabado, "times": times}
 
