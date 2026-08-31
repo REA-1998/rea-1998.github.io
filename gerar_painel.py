@@ -526,15 +526,16 @@ TEMPLATE = r"""<!DOCTYPE html>
       .fpts{min-width:26px;text-align:right;font-weight:bold;color:#1a5fb4}
       .fstar{color:#e6a700}
       .pos{font-size:.7rem;color:#888;border:1px solid #ddd;border-radius:6px;padding:0 5px}
-      .reservas{margin-top:8px;font-size:.85rem;color:#555}
-      .reservas b{color:#333}
+      .res-tag{font-size:.65rem;color:#a06000;background:#fff3d6;border-radius:6px;
+               padding:1px 6px;margin-left:auto;white-space:nowrap}
       .fiel-li{background:#fff8e1}
     </style>
     <h2 id="times-tit">👥 Times de sábado</h2>
     <div class="times-grid" id="times-grid"></div>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
-      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados).
-      ⭐ = Atleta Fiel. 🧤 = goleiro. Reservas entram na sequência.</p>
+      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados) — os 6 de linha com
+      mais pontos começam jogando. ⭐ = Atleta Fiel. 🧤 = goleiro. Quem está marcado
+      <b>Reserva</b> entra na sequência.</p>
   </section>
 
   <section id="craque">
@@ -783,14 +784,12 @@ const TM = D.times || {sabado:'', times:[]};
 if(TM.times.length){
   document.getElementById('times-tit').textContent = '👥 Times — sábado ' + TM.sabado;
   document.getElementById('times-grid').innerHTML = TM.times.map(t=>{
-    const tit = t.atletas.filter(a=>a.titular), res = t.atletas.filter(a=>!a.titular);
     const row = a => `<li class="${a.fiel?'fiel-li':''}"><span class="fpts">${a.fiel_pts}</span>`+
       `<span class="fstar">${a.fiel?'⭐':''}</span>`+
-      `<span>${a.goleiro?'🧤 ':''}${a.nome}</span><span class="pos">${a.pos}</span></li>`;
+      `<span>${a.goleiro?'🧤 ':''}${a.nome}</span><span class="pos">${a.pos}</span>`+
+      `${a.titular?'':'<span class="res-tag">Reserva</span>'}</li>`;
     return `<div class="time-card tc-${t.cor.toLowerCase()}"><h3>${t.cor.toUpperCase()}</h3>`+
-      `<ul>${tit.map(row).join('')}</ul>`+
-      (res.length? `<div class="reservas"><b>Reservas:</b> ${res.map(a=>`${a.fiel?'⭐':''}${a.nome} (${a.pos}, ${a.fiel_pts})`).join(' · ')}</div>`:'')+
-      `</div>`;
+      `<ul>${t.atletas.map(row).join('')}</ul></div>`;
   }).join('');
 } else {
   document.getElementById('times-grid').innerHTML =

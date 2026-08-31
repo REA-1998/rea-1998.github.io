@@ -186,6 +186,23 @@ def ranking(dic):
             for n, v in sorted(itens, key=lambda x: (-x[1], x[0]))]
 
 
+def data_iso(v):
+    """Aceita AAAA-MM-DD ou DD/MM/AAAA; devolve date ou None (nunca quebra o painel)."""
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        return datetime.date.fromisoformat(s)
+    except ValueError:
+        pass
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 def dados_ranking(T):
     craque = collections.defaultdict(float)
     arti = collections.defaultdict(float)
@@ -199,8 +216,10 @@ def dados_ranking(T):
     atletas = set()
     for r in T["Lancamentos"]:
         a = str(r["atleta"]).strip().upper()
+        d = data_iso(r["data"])
+        if not a or d is None:      # linha inválida não derruba o painel
+            continue
         atletas.add(a)
-        d = datetime.date.fromisoformat(str(r["data"]))
         pp, g, vp, bp, cp = (nf(r["presenca_pts"]), nf(r["gols"]), nf(r["vitoria_pts"]),
                              nf(r["bola_pts"]), nf(r["cartao_pts"]))
         if d >= G.CICLO_INICIO:
@@ -217,7 +236,7 @@ def dados_ranking(T):
         if bp < 0:
             murcha[a] += 1
         if pp:
-            por_data[str(r["data"])][a] = pp
+            por_data[d.isoformat()][a] = pp
     # Atleta Fiel: presente (>=2) nas últimas 8 datas com presença
     datas = sorted(por_data)
     ult8 = datas[-8:]

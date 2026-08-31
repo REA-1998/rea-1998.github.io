@@ -251,10 +251,21 @@ def formata_resumo(d: dict) -> str:
     return "\n".join(L)
 
 
+def _data_iso(v):
+    """Normaliza a data para AAAA-MM-DD (a IA às vezes devolve DD/MM/AAAA)."""
+    s = str(v or "").strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return datetime.date.today().isoformat()
+
+
 def gravar_lancamentos(d: dict):
     """Acrescenta uma linha por atleta presente na aba Lancamentos + a data em Sabados."""
     sh = sheet()
-    data = d.get("data") or datetime.date.today().isoformat()
+    data = _data_iso(d.get("data"))
     # proteção contra duplo-lançamento (ex.: Confirmar clicado 2x após um erro)
     ja = [r for r in sh.worksheet("Lancamentos").get_all_values()[1:] if r and r[0] == data]
     if ja:
@@ -309,7 +320,7 @@ def gravar_ultimo_racha(d: dict):
         ws = sh.worksheet("UltimoRacha")
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title="UltimoRacha", rows=5, cols=6)
-    data = d.get("data") or datetime.date.today().isoformat()
+    data = _data_iso(d.get("data"))
     if "-" in data:  # AAAA-MM-DD -> DD/MM/AAAA
         a, m, dd = data.split("-")
         data = f"{dd}/{m}/{a}"

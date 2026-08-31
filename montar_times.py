@@ -76,9 +76,10 @@ def decidir_n_times(n_conf, forcar=None):
 
 
 def _titulares(t):
-    """Marca titulares (6 de linha de maior nível) e calcula somas de titulares e reservas."""
+    """Quem joga = os 6 de linha com MAIS PONTOS de atleta fiel (desempate: nível, nome).
+    Os demais de linha ficam como reserva. Também calcula as somas de nível."""
     linha = [a for a in t["atletas"] if not a["em_gol"]]
-    linha.sort(key=lambda a: (-a["nivel"], -a["fiel_pts"], a["nome"]))
+    linha.sort(key=lambda a: (-a["fiel_pts"], -a["nivel"], a["nome"]))
     for i, a in enumerate(linha):
         a["titular"] = i < TITULARES_LINHA
     for a in t["atletas"]:
@@ -238,15 +239,11 @@ def formatar_telegram(res, sabado=""):
         L.append("")
         L.append(f"{EMOJI.get(t['cor'],'')} {t['cor']} — Σ titulares: {t['soma_linha_titular']}"
                  f" · Σ reservas: {t['soma_reservas']}")
-        for a in [x for x in t["atletas"] if x["titular"]]:
+        for a in t["atletas"]:
             tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
             star = " ⭐" if a["fiel"] else ""
-            L.append(f"  {a['nivel']} · {tag} {a['nome'].title()} (fiel {a['fiel_pts']}{star})")
-        reservas = [x for x in t["atletas"] if not x["titular"]]
-        if reservas:
-            L.append("  — reservas: " + ", ".join(
-                f"{a['nivel']} {a['nome'].title()} ({POS_ABREV.get(a['pos'], a['pos'][:3])})"
-                for a in reservas))
+            res = "  Reserva" if not a["titular"] else ""
+            L.append(f"  {a['nivel']} · {tag} {a['nome'].title()} (fiel {a['fiel_pts']}{star}){res}")
     if res["nao_reconhecidos"]:
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
@@ -261,15 +258,11 @@ def formatar_publico(res, sabado=""):
     for t in res["times"]:
         L.append("")
         L.append(f"{EMOJI.get(t['cor'],'')} {t['cor']}")
-        for a in [x for x in t["atletas"] if x["titular"]]:
+        for a in t["atletas"]:
             tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
             star = " ⭐" if a["fiel"] else ""
-            L.append(f"  {a['fiel_pts']:>2}{star} {tag} {a['nome'].title()}")
-        reservas = [x for x in t["atletas"] if not x["titular"]]
-        if reservas:
-            L.append("  — reservas: " + ", ".join(
-                f"{a['nome'].title()} ({POS_ABREV.get(a['pos'], a['pos'][:3])}, fiel {a['fiel_pts']}{' ⭐' if a['fiel'] else ''})"
-                for a in reservas))
+            res = "  Reserva" if not a["titular"] else ""
+            L.append(f"  {a['fiel_pts']:>2}{star} {tag} {a['nome'].title()}{res}")
     if res["nao_reconhecidos"]:
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
