@@ -533,9 +533,9 @@ TEMPLATE = r"""<!DOCTYPE html>
     <h2 id="times-tit">👥 Times de sábado</h2>
     <div class="times-grid" id="times-grid"></div>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
-      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados) — os 6 de linha com
-      mais pontos começam jogando. ⭐ = Atleta Fiel. 🧤 = goleiro. Quem está marcado
-      <b>Reserva</b> entra na sequência.</p>
+      Número na frente = <b>pontos de Atleta Fiel</b> (últimos 8 sábados). ⭐ = Atleta Fiel.
+      🧤 = goleiro. Quem tem <b>menos pontos</b> no time começa como
+      <b>⏳ Reserva (Atleta Fiel)</b> e entra na sequência.</p>
   </section>
 
   <section id="craque">
@@ -787,7 +787,7 @@ if(TM.times.length){
     const row = a => `<li class="${a.fiel?'fiel-li':''}"><span class="fpts">${a.fiel_pts}</span>`+
       `<span class="fstar">${a.fiel?'⭐':''}</span>`+
       `<span>${a.goleiro?'🧤 ':''}${a.nome}</span><span class="pos">${a.pos}</span>`+
-      `${a.titular?'':'<span class="res-tag">Reserva</span>'}</li>`;
+      `${a.titular?'':'<span class="res-tag">⏳ Reserva (Atleta Fiel)</span>'}</li>`;
     return `<div class="time-card tc-${t.cor.toLowerCase()}"><h3>${t.cor.toUpperCase()}</h3>`+
       `<ul>${t.atletas.map(row).join('')}</ul></div>`;
   }).join('');

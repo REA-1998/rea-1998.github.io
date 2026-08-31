@@ -76,19 +76,25 @@ def decidir_n_times(n_conf, forcar=None):
 
 
 def _titulares(t):
-    """Quem joga = os 6 de linha com MAIS PONTOS de atleta fiel (desempate: nível, nome).
-    Os demais de linha ficam como reserva. Também calcula as somas de nível."""
+    """Dois cálculos distintos:
+    (1) FORMAÇÃO/EQUILÍBRIO — usa os 6 de linha de MAIOR NÍVEL (não mudar: é o que
+        divide os times de forma equilibrada);
+    (2) EXIBIÇÃO — quem começa jogando são os 6 de linha com MAIS PONTOS DE ATLETA FIEL;
+        os de menos pontos ficam como reserva (regra do REA)."""
     linha = [a for a in t["atletas"] if not a["em_gol"]]
-    linha.sort(key=lambda a: (-a["fiel_pts"], -a["nivel"], a["nome"]))
-    for i, a in enumerate(linha):
+    # (1) equilíbrio por nível
+    por_nivel = sorted(linha, key=lambda a: (-a["nivel"], -a["fiel_pts"], a["nome"]))
+    t["soma_linha_titular"] = sum(a["nivel"] for a in por_nivel[:TITULARES_LINHA])
+    t["soma_reservas"] = sum(a["nivel"] for a in por_nivel[TITULARES_LINHA:])
+    t["soma_linha_total"] = sum(a["nivel"] for a in linha)
+    t["n_linha"] = len(linha)
+    # (2) quem joga / quem é reserva, pelos pontos de Atleta Fiel
+    por_fiel = sorted(linha, key=lambda a: (-a["fiel_pts"], -a["nivel"], a["nome"]))
+    for i, a in enumerate(por_fiel):
         a["titular"] = i < TITULARES_LINHA
     for a in t["atletas"]:
         if a["em_gol"]:
             a["titular"] = True
-    t["soma_linha_titular"] = sum(a["nivel"] for a in linha if a["titular"])
-    t["soma_reservas"] = sum(a["nivel"] for a in linha if not a["titular"])
-    t["soma_linha_total"] = sum(a["nivel"] for a in linha)
-    t["n_linha"] = len(linha)
 
 
 def _objetivo(times):
@@ -242,8 +248,8 @@ def formatar_telegram(res, sabado=""):
         for a in t["atletas"]:
             tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
             star = " ⭐" if a["fiel"] else ""
-            res = "  Reserva" if not a["titular"] else ""
-            L.append(f"  {a['nivel']} · {tag} {a['nome'].title()} (fiel {a['fiel_pts']}{star}){res}")
+            marca = "  ⏳ Reserva (Atleta Fiel)" if not a["titular"] else ""
+            L.append(f"  {a['nivel']} · {tag} {a['nome'].title()} (fiel {a['fiel_pts']}{star}){marca}")
     if res["nao_reconhecidos"]:
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
@@ -261,13 +267,14 @@ def formatar_publico(res, sabado=""):
         for a in t["atletas"]:
             tag = "🧤" if a["em_gol"] else POS_ABREV.get(a["pos"], a["pos"][:3])
             star = " ⭐" if a["fiel"] else ""
-            res = "  Reserva" if not a["titular"] else ""
-            L.append(f"  {a['fiel_pts']:>2}{star} {tag} {a['nome'].title()}{res}")
+            marca = "  ⏳ Reserva (Atleta Fiel)" if not a["titular"] else ""
+            L.append(f"  {a['fiel_pts']:>2}{star} {tag} {a['nome'].title()}{marca}")
     if res["nao_reconhecidos"]:
         L.append("\n⚠️ Não reconheci no cadastro: " + ", ".join(res["nao_reconhecidos"]))
     for av in res["avisos"]:
         L.append(f"ℹ️ {av}")
-    L.append("\n(número na frente = pontos de atleta fiel nos últimos 8 sábados; ⭐ = atleta fiel)")
+    L.append("\n(número na frente = pontos de Atleta Fiel nos últimos 8 sábados; ⭐ = Atleta Fiel."
+             "\nQuem tem menos pontos começa como reserva — critério do Atleta Fiel.)")
     return "\n".join(L)
 
 
