@@ -222,6 +222,18 @@ def main():
             if not copia and loc_id:
                 qr = efi.pix_generate_qrcode(params={"id": loc_id})
                 copia = qr.get("qrcode", "") if isinstance(qr, dict) else ""
+            if not copia:  # última tentativa: consulta a cobrança recém-criada
+                det = efi.pix_detail_charge(params={"txid": txid})
+                if isinstance(det, dict):
+                    copia = det.get("pixCopiaECola", "")
+                    loc_id = loc_id or (det.get("loc", {}) or {}).get("id", "")
+                    location = location or det.get("location", "")
+                    if not copia and loc_id:
+                        qr = efi.pix_generate_qrcode(params={"id": loc_id})
+                        copia = qr.get("qrcode", "") if isinstance(qr, dict) else ""
+            if not copia:
+                print(f"  ! ATENÇÃO: {atleta} ficou SEM QR (cobrança criada, mas sem copia-e-cola). "
+                      f"Rode de novo ou recupere pelo txid {txid}.")
             novas_linhas.append([mes, atleta, txid, f"{valor:.2f}",
                                  resp.get("status","ATIVA"), str(loc_id), location,
                                  copia, agora, "", ""])
