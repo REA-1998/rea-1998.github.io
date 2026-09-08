@@ -36,7 +36,9 @@ from telegram.ext import (Application, CommandHandler, MessageHandler,
                           CallbackQueryHandler, filters, ContextTypes)
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-ALLOWED_ID = int(os.environ["TELEGRAM_ALLOWED_ID"])
+# aceita 1 ou vários IDs separados por vírgula (ex.: "8849494717,123456789")
+ALLOWED_IDS = {int(x) for x in str(os.environ["TELEGRAM_ALLOWED_ID"]).replace(";", ",").split(",") if x.strip()}
+ALLOWED_ID = min(ALLOWED_IDS)  # compatibilidade
 SHEET_ID = os.environ["SHEET_ID"]
 SA_JSON = os.environ["GOOGLE_SA_JSON"]
 APP_DIR = Path(__file__).parent
@@ -103,7 +105,23 @@ def sheet():
 
 
 def so_eu(update: Update) -> bool:
-    return update.effective_user and update.effective_user.id == ALLOWED_ID
+    """Autorizado? Se não, avisa a pessoa e registra o ID dela no log (para liberar depois)."""
+    u = update.effective_user
+    if u and u.id in ALLOWED_IDS:
+        return True
+    if u:
+        print(f"ACESSO NEGADO: id={u.id} nome={u.full_name!r} username=@{u.username}", flush=True)
+    return False
+
+
+async def negar_acesso(update: Update):
+    """Responde a quem não tem acesso, informando o ID (para o Mateus liberar)."""
+    u = update.effective_user
+    if u and update.message:
+        await update.message.reply_text(
+            "🔒 Você ainda não tem acesso a este bot.\n"
+            f"Seu ID do Telegram é: {u.id}\n"
+            "Passe esse número ao Mateus (ou ao Claude) para liberar o acesso.")
 
 
 _alias_cache = None
@@ -459,6 +477,7 @@ async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not so_eu(update):
+        await negar_acesso(update)
         return
     await update.message.reply_text(
         "⚽ Bot do Racha REA pronto!\nManda a foto da súmula que eu leio, "
@@ -487,6 +506,7 @@ async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not so_eu(update):
+        await negar_acesso(update)
         return
     cid = update.effective_chat.id
     txt = (update.message.text or "").strip()
@@ -528,7 +548,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    if q.from_user.id != ALLOWED_ID:
+    if q.from_user.id not in ALLOWED_IDS:
         return
     cid = q.message.chat.id
     if q.data in ("times_ok", "times_no"):
