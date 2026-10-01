@@ -604,7 +604,9 @@ TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <p style="font-size:.72rem;color:#888;margin-top:8px">
       Cada atleta tem um <b>Pix próprio</b> — ao pagar, sua mensalidade recebe baixa
-      <b>automática</b> no painel. Mensalidade R$ 90 (R$ 120 em atraso).</p>
+      <b>automática</b> no painel. Mensalidade R$ 90 (R$ 120 em atraso).<br>
+      💡 <b>Pode pagar valor diferente:</b> no app do banco dá para <b>alterar o valor</b> —
+      pagar só uma parte (o restante gera um novo QR aqui) ou adiantar mais do que deve.</p>
   </section>
 
   <section id="ultimo">

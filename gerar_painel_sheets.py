@@ -158,10 +158,22 @@ def dados_cobrancas(T):
         qrcode = None
     ativos = {str(a.get("nome", "")).strip().upper() for a in T.get("Atletas", [])
               if str(a.get("ativo", "")).strip().lower() == "sim"}
-    itens = []
+    # pode haver mais de uma cobrança por atleta no mês (saldo após pagamento parcial):
+    # mostrar a ATIVA mais recente; se não houver, a última (concluída)
+    por_atleta = {}
     for r in recs:
         if str(r.get("mes", "")).strip() != mes:
             continue
+        nome_up = str(r.get("atleta", "")).strip().upper()
+        ativa = str(r.get("status", "")).strip().upper() == "ATIVA"
+        ant = por_atleta.get(nome_up)
+        if ant is None or (ativa and str(ant.get("status", "")).strip().upper() != "ATIVA"):
+            por_atleta[nome_up] = r
+        elif ativa and str(r.get("criado_em", "")) > str(ant.get("criado_em", "")):
+            por_atleta[nome_up] = r
+
+    itens = []
+    for r in por_atleta.values():
         atleta_up = str(r.get("atleta", "")).strip().upper()
         if atleta_up not in ativos:  # saiu do racha -> não exibe cobrança
             continue

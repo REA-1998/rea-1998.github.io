@@ -43,6 +43,55 @@ def _ci(header, name):
     return header.index(name)
 
 
+def _nf(x):
+    try:
+        return float(str(x).replace(",", ".") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _efi():
+    from efipay import EfiPay
+    return EfiPay({
+        "client_id": os.environ["EFI_CLIENT_ID"],
+        "client_secret": os.environ["EFI_CLIENT_SECRET"],
+        "certificate": os.environ["EFI_CERT_PATH"],
+        "sandbox": os.environ.get("EFI_SANDBOX", "false").lower() == "true",
+    })
+
+
+def nova_cobranca_saldo(sh, atleta, mes, saldo):
+    """Depois de um pagamento parcial, emite um novo QR com o que ainda falta."""
+    import random
+    import string
+    import unicodedata
+    efi = _efi()
+    slug = "".join(c for c in unicodedata.normalize("NFKD", atleta).encode("ascii", "ignore").decode()
+                   if c.isalnum()).upper()
+    suf = "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+    txid = (f"RACHA{mes.replace(' ', '')}{slug}{suf}")[:35]
+    if len(txid) < 26:
+        txid += "X" * (26 - len(txid))
+    body = {"calendario": {"expiracao": 60 * 60 * 24 * 40},
+            "valor": {"original": f"{saldo:.2f}", "modalidadeAlteracao": 1},
+            "chave": os.environ["EFI_PIX_KEY"],
+            "solicitacaoPagador": f"Saldo {mes} - Racha REA - {atleta.title()} (pode alterar o valor)"}
+    resp = efi.pix_create_charge(params={"txid": txid}, body=body)
+    if not isinstance(resp, dict) or "loc" not in resp:
+        print("Falha ao criar cobranca de saldo:", resp)
+        return None
+    copia = resp.get("pixCopiaECola", "")
+    if not copia:
+        qr = efi.pix_generate_qrcode(params={"id": resp["loc"]["id"]})
+        copia = qr.get("qrcode", "") if isinstance(qr, dict) else ""
+    agora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sh.worksheet("PixCobrancas").append_row(
+        [mes, atleta, txid, f"{saldo:.2f}", "ATIVA", str(resp["loc"]["id"]),
+         resp.get("location", ""), copia, agora, "", ""], value_input_option="RAW")
+    print(f"Nova cobranca de saldo: {atleta} {mes} R$ {saldo:.2f}")
+    return txid
+
+
 def registrar_pagamento(sh, txid, valor, horario, e2eid):
     """Casa o txid com o atleta/mês e grava o pagamento. Retorna um resumo (dict)."""
     pix_ws = sh.worksheet("PixCobrancas")
@@ -70,21 +119,30 @@ def registrar_pagamento(sh, txid, valor, horario, e2eid):
         if r[gi("mes")].strip().upper() == mes.upper() and r[gi("atleta")].strip().upper() == atleta.upper():
             alvo = i; existente = r; break
     val = float(str(valor).replace(",", "."))
+    saldo = 0.0
     if alvo:
-        atual = existente[gi("valor_pago")].strip().replace(",", ".")
-        atual = float(atual) if atual else 0.0
+        atual = _nf(existente[gi("valor_pago")])
         novo = atual + val
         pg.update(values=[[f"{novo:.2f}"]], range_name=rowcol_to_a1(alvo, gi("valor_pago")+1), value_input_option="RAW")
         pg.update(values=[[data_pgto]], range_name=rowcol_to_a1(alvo, gi("data_pgto")+1), value_input_option="RAW")
         obs = (existente[gi("obs")] + " | Pix auto (Efi)").strip(" |")
         pg.update(values=[[obs]], range_name=rowcol_to_a1(alvo, gi("obs")+1), value_input_option="RAW")
+        devido = _nf(existente[gi("s_a")]) + _nf(existente[gi("mensalidade")]) + _nf(existente[gi("multa_chu")])
+        saldo = round(devido - novo, 2)
     else:
         row = [""] * len(gh)
         row[gi("mes")] = mes; row[gi("atleta")] = atleta
         row[gi("mensalidade")] = "90"; row[gi("valor_pago")] = f"{val:.2f}"
         row[gi("data_pgto")] = data_pgto; row[gi("obs")] = "Pix auto (Efi)"
         pg.append_row(row, value_input_option="RAW")
-    return {"ok": True, "atleta": atleta, "mes": mes, "valor": val}
+        saldo = round(90.0 - val, 2)
+    # pagamento parcial -> emite automaticamente um novo QR com o que falta
+    if saldo > 0.009:
+        try:
+            nova_cobranca_saldo(sh, atleta, mes, saldo)
+        except Exception as e:
+            print("Nao consegui emitir a cobranca de saldo:", e)
+    return {"ok": True, "atleta": atleta, "mes": mes, "valor": val, "saldo": saldo}
 
 
 def processar_payload(sh, data):

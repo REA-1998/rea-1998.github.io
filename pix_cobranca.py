@@ -201,9 +201,11 @@ def main():
             continue
         body = {
             "calendario": {"expiracao": 60 * 60 * 24 * 40},  # 40 dias
-            "valor": {"original": f"{valor:.2f}"},
+            # modalidadeAlteracao=1: o atleta pode ALTERAR o valor no app do banco
+            # (pagar parcial, só o mês anterior, ou adiantar) — ver regra no README
+            "valor": {"original": f"{valor:.2f}", "modalidadeAlteracao": 1},
             "chave": os.environ["EFI_PIX_KEY"],
-            "solicitacaoPagador": f"Mensalidade {mes} - Racha REA - {atleta}",
+            "solicitacaoPagador": f"Mensalidade {mes} - Racha REA - {atleta} (pode alterar o valor)",
         }
         try:
             resp = efi.pix_create_charge(params={"txid": txid}, body=body)
