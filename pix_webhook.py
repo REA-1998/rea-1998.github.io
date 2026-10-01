@@ -60,6 +60,12 @@ def _efi():
     })
 
 
+def _mes_atual():
+    M = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
+    h = datetime.date.today()
+    return f"{M[h.month - 1]} {h.year}"
+
+
 def nova_cobranca_saldo(sh, atleta, mes, saldo):
     """Depois de um pagamento parcial, emite um novo QR com o que ainda falta."""
     import random
@@ -73,9 +79,9 @@ def nova_cobranca_saldo(sh, atleta, mes, saldo):
     if len(txid) < 26:
         txid += "X" * (26 - len(txid))
     body = {"calendario": {"expiracao": 60 * 60 * 24 * 40},
-            "valor": {"original": f"{saldo:.2f}", "modalidadeAlteracao": 1},
+            "valor": {"original": f"{saldo:.2f}"},
             "chave": os.environ["EFI_PIX_KEY"],
-            "solicitacaoPagador": f"Saldo {mes} - Racha REA - {atleta.title()} (pode alterar o valor)"}
+            "solicitacaoPagador": f"Saldo {mes} - Racha REA - {atleta.title()}"}
     resp = efi.pix_create_charge(params={"txid": txid}, body=body)
     if not isinstance(resp, dict) or "loc" not in resp:
         print("Falha ao criar cobranca de saldo:", resp)
@@ -168,6 +174,35 @@ def make_app():
     @app.get("/pix-racha/health")
     def health():
         return jsonify({"ok": True})
+
+    @app.post("/pix-racha/cobranca")
+    def cobranca_sob_medida():
+        """Gera um QR com o valor que o atleta escolheu (pagar parte ou adiantar).
+        Body: {"atleta": "WALTER", "valor": 50.00}"""
+        d = request.get_json(silent=True) or {}
+        atleta = str(d.get("atleta", "")).strip()
+        valor = _nf(d.get("valor"))
+        if not atleta or valor < 1 or valor > 5000:
+            return jsonify({"ok": False, "erro": "informe atleta e um valor entre R$1 e R$5.000"}), 400
+        # só aceita atleta ativo do cadastro
+        nomes = {str(a.get("nome", "")).strip().upper() for a in sh.worksheet("Atletas").get_all_records()
+                 if str(a.get("ativo", "")).strip().lower() == "sim"}
+        if atleta.upper() not in nomes:
+            return jsonify({"ok": False, "erro": "atleta não encontrado"}), 404
+        mes = _mes_atual()
+        try:
+            txid = nova_cobranca_saldo(sh, atleta.upper(), mes, round(valor, 2))
+        except Exception as e:
+            print("Erro na cobranca sob medida:", e)
+            return jsonify({"ok": False, "erro": "falha ao gerar"}), 500
+        if not txid:
+            return jsonify({"ok": False, "erro": "falha ao gerar"}), 500
+        xv = sh.worksheet("PixCobrancas").get_all_values(); xh = xv[0]
+        for r in reversed(xv[1:]):
+            if r[_ci(xh, "txid")].strip() == txid:
+                return jsonify({"ok": True, "copia": r[_ci(xh, "pix_copia_cola")],
+                                "valor": f"{valor:.2f}", "atleta": atleta.title()})
+        return jsonify({"ok": False, "erro": "gerado, mas não encontrei o QR"}), 500
 
     # aceita a URL com token e tambem o /pix que a Efi acrescenta
     @app.post(f"/pix-racha/webhook/{TOKEN}")

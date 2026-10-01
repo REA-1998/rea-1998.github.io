@@ -597,7 +597,10 @@ TEMPLATE = r"""<!DOCTYPE html>
         <b>Mensalidade <span id="pagar-mes"></span></b>
         <div class="pixsub">Valor: <b id="pagar-valor"></b></div>
         <div class="pixkey" id="pagar-copia"></div>
-        <div class="pixbtns"><button id="btn-copia-pix">📋 Copiar código Pix</button></div>
+        <div class="pixbtns">
+          <button id="btn-copia-pix">📋 Copiar código Pix</button>
+          <button id="btn-outro-valor">💭 Pagar outro valor</button>
+        </div>
         <div class="pixok" id="pagar-ok"></div>
       </div>
       <img class="pixqr" id="pagar-qr" alt="QR Pix da sua mensalidade">
@@ -605,8 +608,9 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p style="font-size:.72rem;color:#888;margin-top:8px">
       Cada atleta tem um <b>Pix próprio</b> — ao pagar, sua mensalidade recebe baixa
       <b>automática</b> no painel. Mensalidade R$ 90 (R$ 120 em atraso).<br>
-      💡 <b>Pode pagar valor diferente:</b> no app do banco dá para <b>alterar o valor</b> —
-      pagar só uma parte (o restante gera um novo QR aqui) ou adiantar mais do que deve.</p>
+      💡 <b>Quer pagar outro valor?</b> Toque em <b>"Pagar outro valor"</b> e digite quanto quer
+      pagar agora (uma parte da dívida ou um adiantamento). Se sobrar saldo, um novo QR aparece aqui
+      automaticamente.</p>
   </section>
 
   <section id="ultimo">
@@ -769,6 +773,27 @@ document.getElementById('btn-copia-pix').onclick = ()=>{
     el.textContent='✅ Código Pix copiado! Cole no seu banco.';
     setTimeout(()=>{el.textContent='';},2500);
   });
+};
+
+// pagar um valor diferente (parcial ou adiantado) -> gera um QR sob medida
+document.getElementById('btn-outro-valor').onclick = ()=>{
+  const nome = selPag.value; if(!nome) return;
+  const ok = document.getElementById('pagar-ok');
+  const txt = prompt('Quanto você quer pagar agora? (ex.: 50 ou 120)');
+  if(txt===null) return;
+  const v = parseFloat(String(txt).replace(',','.'));
+  if(!(v>=1)){ ok.textContent='❌ Valor inválido.'; return; }
+  ok.textContent='⏳ Gerando seu Pix de R$ '+v.toFixed(2).replace('.',',')+'...';
+  fetch('/pix-racha/cobranca',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({atleta:nome.toUpperCase(), valor:v})})
+    .then(r=>r.json()).then(d=>{
+      if(!d.ok){ ok.textContent='❌ '+(d.erro||'não consegui gerar'); return; }
+      document.getElementById('pagar-copia').textContent = d.copia;
+      document.getElementById('pagar-valor').textContent = 'R$ '+v.toFixed(2).replace('.',',')+' (valor escolhido)';
+      document.getElementById('pagar-qr').style.display='none';
+      ok.innerHTML = '✅ Pix de R$ '+v.toFixed(2).replace('.',',')+' gerado! Toque em <b>Copiar código Pix</b> e cole no banco.';
+      cobMap[nome] = Object.assign({}, cobMap[nome]||{}, {copia:d.copia});
+    }).catch(()=>{ ok.textContent='❌ Falhou. Tente de novo.'; });
 };
 
 // último racha

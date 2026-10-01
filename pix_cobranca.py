@@ -201,11 +201,12 @@ def main():
             continue
         body = {
             "calendario": {"expiracao": 60 * 60 * 24 * 40},  # 40 dias
-            # modalidadeAlteracao=1: o atleta pode ALTERAR o valor no app do banco
-            # (pagar parcial, só o mês anterior, ou adiantar) — ver regra no README
-            "valor": {"original": f"{valor:.2f}", "modalidadeAlteracao": 1},
+            # OBS: a Efí NÃO aceita "modalidadeAlteracao" aqui (valor é fixo no QR).
+            # Para pagar outro valor, o site usa o endpoint /pix-racha/cobranca (pix_webhook.py),
+            # que emite um QR sob medida com o valor escolhido pelo atleta.
+            "valor": {"original": f"{valor:.2f}"},
             "chave": os.environ["EFI_PIX_KEY"],
-            "solicitacaoPagador": f"Mensalidade {mes} - Racha REA - {atleta} (pode alterar o valor)",
+            "solicitacaoPagador": f"Mensalidade {mes} - Racha REA - {atleta}",
         }
         try:
             resp = efi.pix_create_charge(params={"txid": txid}, body=body)
