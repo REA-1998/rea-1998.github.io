@@ -312,9 +312,12 @@ def dados_financeiro(T):
         multa, pago = nf(r["multa_chu"]), nf(r["valor_pago"])
         total = sa + mens + multa
         saldo = total - pago
+        # Atrasado = virou o mês devendo MENSALIDADE (s_a >= 90) e ainda não quitou essa
+        # dívida antiga — mesmo que tenha pago uma parte. Multa pequena antiga (s_a < 90)
+        # não rebaixa ninguém (regra do Mateus).
         resto = max(0.0, sa - pago)
         sit = ("Isento" if total == 0 and saldo == 0 else "Em dia" if saldo <= 0
-               else "Atrasado" if resto >= 90 else "Mês em aberto")
+               else "Atrasado" if (sa >= 90 and resto > 0) else "Mês em aberto")
         linhas.append({"nome": nome.title(), "total": round(total, 2),
                        "pago": round(pago, 2), "saldo": round(saldo, 2), "situacao": sit})
     ordem = {"Atrasado": 0, "Mês em aberto": 1, "Em dia": 2, "Isento": 3}
