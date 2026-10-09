@@ -100,7 +100,7 @@ def virar_mes(sh, mes, mes3, ano):
     for r in recs:
         if str(r.get("mes", "")).strip().upper() == mes_ant.upper():
             saldo[str(r["atleta"]).strip().upper()] = (
-                _nf(r["s_a"]) + _nf(r["mensalidade"]) + _nf(r["multa_chu"]) - _nf(r["valor_pago"]))
+                _nf(r["s_a"]) + _nf(r["mensalidade"]) + _nf(r["multa_chu"]) + _nf(r.get("consumo")) - _nf(r["valor_pago"]))
     novas = []
     for a in sh.worksheet("Atletas").get_all_records():
         if str(a.get("ativo", "")).strip().lower() != "sim":
@@ -128,7 +128,8 @@ def valores_devidos(sh, mes):
     for r in sh.worksheet("Pagamentos").get_all_records():
         if str(r.get("mes", "")).strip().upper() != mes.upper():
             continue
-        v = _nf(r["s_a"]) + _nf(r["mensalidade"]) + _nf(r["multa_chu"]) - _nf(r["valor_pago"])
+        v = (_nf(r["s_a"]) + _nf(r["mensalidade"]) + _nf(r["multa_chu"]) + _nf(r.get("consumo"))
+             - _nf(r["valor_pago"]))
         out[str(r["atleta"]).strip().upper()] = max(0.0, round(v, 2))
     return out
 

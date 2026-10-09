@@ -60,6 +60,42 @@ def _efi():
     })
 
 
+TETO_CONSUMO = float(os.environ.get("BAR_TETO", "100"))
+
+
+def _consumo_aberto(sh, atleta, mes):
+    """Quanto o atleta tem de consumo ainda não pago no mês.
+    O pagamento abate primeiro mensalidade/multa/saldo antigo; o que sobra abate consumo."""
+    for r in sh.worksheet("Pagamentos").get_all_records():
+        if (str(r.get("mes", "")).strip().upper() == mes.upper()
+                and str(r.get("atleta", "")).strip().upper() == atleta.upper()):
+            fixos = _nf(r.get("s_a")) + _nf(r.get("mensalidade")) + _nf(r.get("multa_chu"))
+            consumo = _nf(r.get("consumo"))
+            sobra = max(0.0, _nf(r.get("valor_pago")) - fixos)
+            return max(0.0, round(consumo - sobra, 2))
+    return 0.0
+
+
+def _somar_consumo_na_conta(sh, atleta, mes, valor):
+    """Soma o consumo na linha do mês (cria a linha se não existir)."""
+    pg = sh.worksheet("Pagamentos")
+    gv = pg.get_all_values(); gh = gv[0]
+    def gi(n): return _ci(gh, n)
+    for i, r in enumerate(gv[1:], start=2):
+        if (r[gi("mes")].strip().upper() == mes.upper()
+                and r[gi("atleta")].strip().upper() == atleta.upper()):
+            novo = _nf(r[gi("consumo")]) + valor
+            pg.update(values=[[f"{novo:.2f}"]], range_name=rowcol_to_a1(i, gi("consumo")+1),
+                      value_input_option="RAW")
+            return novo
+    row = [""] * len(gh)
+    row[gi("mes")] = mes; row[gi("atleta")] = atleta
+    row[gi("mensalidade")] = "90"; row[gi("consumo")] = f"{valor:.2f}"
+    row[gi("valor_pago")] = "0"; row[gi("obs")] = "linha criada pelo boteco"
+    pg.append_row(row, value_input_option="RAW")
+    return valor
+
+
 def _mes_atual():
     M = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
     h = datetime.date.today()
@@ -133,7 +169,8 @@ def registrar_pagamento(sh, txid, valor, horario, e2eid):
         pg.update(values=[[data_pgto]], range_name=rowcol_to_a1(alvo, gi("data_pgto")+1), value_input_option="RAW")
         obs = (existente[gi("obs")] + " | Pix auto (Efi)").strip(" |")
         pg.update(values=[[obs]], range_name=rowcol_to_a1(alvo, gi("obs")+1), value_input_option="RAW")
-        devido = _nf(existente[gi("s_a")]) + _nf(existente[gi("mensalidade")]) + _nf(existente[gi("multa_chu")])
+        devido = (_nf(existente[gi("s_a")]) + _nf(existente[gi("mensalidade")])
+                  + _nf(existente[gi("multa_chu")]) + _nf(existente[gi("consumo")]))
         saldo = round(devido - novo, 2)
     else:
         row = [""] * len(gh)
@@ -174,6 +211,66 @@ def make_app():
     @app.get("/pix-racha/health")
     def health():
         return jsonify({"ok": True})
+
+    @app.get("/pix-racha/bar/produtos")
+    def bar_produtos():
+        """Catálogo com estoque, para a tela do boteco."""
+        itens = [{"produto": str(p.get("produto", "")), "categoria": str(p.get("categoria", "")),
+                  "preco": _nf(p.get("preco")), "estoque": int(_nf(p.get("estoque")))}
+                 for p in sh.worksheet("BarProdutos").get_all_records()
+                 if str(p.get("ativo", "")).strip().lower() == "sim"]
+        return jsonify({"ok": True, "itens": itens})
+
+    @app.post("/pix-racha/bar/consumo")
+    def bar_consumo():
+        """Atleta marca o que consumiu. Entra na conta dele (coluna 'consumo' do mês).
+        Body: {"atleta":"WALTER","itens":[{"produto":"Skol 300","qtd":2}, ...]}"""
+        d = request.get_json(silent=True) or {}
+        atleta = str(d.get("atleta", "")).strip().upper()
+        pedidos = d.get("itens") or []
+        if not atleta or not pedidos:
+            return jsonify({"ok": False, "erro": "informe atleta e itens"}), 400
+        atletas = {str(a.get("nome", "")).strip().upper(): a
+                   for a in sh.worksheet("Atletas").get_all_records()
+                   if str(a.get("ativo", "")).strip().lower() == "sim"}
+        if atleta not in atletas:
+            return jsonify({"ok": False, "erro": "atleta não encontrado"}), 404
+        pw_ = sh.worksheet("BarProdutos")
+        prods = pw_.get_all_values()
+        phdr = prods[0]
+        pi = {n: phdr.index(n) for n in ("produto", "preco", "estoque")}
+        linha_de = {r[pi["produto"]].strip().lower(): (i, r) for i, r in enumerate(prods[1:], start=2)}
+        mes = _mes_atual()
+        hoje = datetime.date.today().isoformat()
+        agora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        novos, total, ups_estoque = [], 0.0, []
+        for it in pedidos:
+            nome = str(it.get("produto", "")).strip().lower()
+            qtd = int(_nf(it.get("qtd")))
+            if nome not in linha_de or qtd < 1:
+                continue
+            i, r = linha_de[nome]
+            preco = _nf(r[pi["preco"]])
+            est = int(_nf(r[pi["estoque"]]))
+            if qtd > est:
+                return jsonify({"ok": False, "erro": f"só restam {est} de {r[pi['produto']]}"}), 409
+            sub = round(preco * qtd, 2)
+            total += sub
+            novos.append([hoje, atleta, r[pi["produto"]], qtd, f"{preco:.2f}", f"{sub:.2f}", agora])
+            ups_estoque.append({"range": rowcol_to_a1(i, pi["estoque"] + 1), "values": [[est - qtd]]})
+        if not novos:
+            return jsonify({"ok": False, "erro": "nenhum item válido"}), 400
+        # trava: teto de consumo em aberto
+        aberto = _consumo_aberto(sh, atleta, mes)
+        if aberto + total > TETO_CONSUMO:
+            return jsonify({"ok": False,
+                            "erro": f"limite de R$ {TETO_CONSUMO:.0f} atingido "
+                                    f"(você já tem R$ {aberto:.2f} em aberto). Acerte antes de consumir mais."}), 409
+        sh.worksheet("BarConsumo").append_rows(novos, value_input_option="RAW")
+        pw_.batch_update(ups_estoque, value_input_option="RAW")
+        _somar_consumo_na_conta(sh, atleta, mes, total)
+        return jsonify({"ok": True, "total": f"{total:.2f}",
+                        "em_aberto": f"{aberto + total:.2f}", "itens": len(novos)})
 
     @app.post("/pix-racha/cobranca")
     def cobranca_sob_medida():

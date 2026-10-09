@@ -480,6 +480,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <button data-aba="estat">📊 Estatísticas</button>
     <button data-aba="fin">💰 Financeiro</button>
     <button data-aba="pagar">💳 Pagar</button>
+    <button data-aba="boteco">🍺 Boteco</button>
     <button data-aba="ultimo">📋 Último racha</button>
   </nav>
 
@@ -613,6 +614,43 @@ TEMPLATE = r"""<!DOCTYPE html>
       automaticamente.</p>
   </section>
 
+  <section id="boteco">
+    <style>
+      .bt-cat{margin:14px 0 6px;font-weight:bold;color:#1a5fb4;font-size:.9rem}
+      .bt-item{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed #eee}
+      .bt-nome{flex:1}
+      .bt-preco{color:#1a5fb4;font-weight:bold;min-width:62px;text-align:right}
+      .bt-est{font-size:.68rem;color:#999;min-width:54px;text-align:right}
+      .bt-qtd{min-width:22px;text-align:center;font-weight:bold}
+      .bt-b{width:30px;height:30px;border-radius:50%;border:1px solid #cfd8e3;background:#fff;
+            font-size:1rem;font-weight:bold;cursor:pointer;line-height:1}
+      .bt-b:disabled{opacity:.3}
+      .bt-bar{position:sticky;bottom:0;background:#fff;border-top:2px solid #1a5fb4;padding:10px 0;margin-top:10px}
+      .bt-total{font-size:1.1rem;font-weight:bold}
+      #bt-enviar{background:#1a5fb4;color:#fff;border:0;border-radius:8px;padding:10px 16px;
+                 font-weight:bold;cursor:pointer}
+      #bt-enviar:disabled{opacity:.4}
+      .bt-esgotado{opacity:.45}
+    </style>
+    <h2>🍺 Boteco do REA</h2>
+    <div class="rsvp-form">
+      <select id="bt-nome"></select>
+      <div class="rsvp-msg" id="bt-msg">Escolha seu nome e marque o que pegou.</div>
+    </div>
+    <div id="bt-lista"></div>
+    <div class="bt-bar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="bt-total">Total: <span id="bt-total">R$ 0,00</span></span>
+        <button id="bt-enviar" disabled>✅ Lançar na minha conta</button>
+      </div>
+      <div class="rsvp-msg" id="bt-ok"></div>
+    </div>
+    <p style="font-size:.72rem;color:#888;margin-top:10px">
+      O que você consumir entra na sua conta e é cobrado junto com a mensalidade (aba 💳 Pagar).
+      <b>Pague até o sábado seguinte</b> — consumo em aberto bloqueia a confirmação de presença.
+      Limite de R$ 100 em aberto.</p>
+  </section>
+
   <section id="ultimo">
     <h2 id="ultimo-titulo">📋 Último racha</h2>
     <div class="quadro" id="quadro"></div>
@@ -703,6 +741,13 @@ function enviarRSVP(resp){
   const nome = selNome.value;
   if(!nome){ rsvpMsg('Escolha seu nome primeiro 😉','erro'); return; }
   localStorage.setItem('rea_nome', nome);
+  // boteco: consumo de sábados anteriores em aberto trava a confirmação (vence em 1 semana)
+  const cons = (D.consumo_aberto||{})[nome] || 0;
+  if(resp==='Vou' && cons > 0){
+    rsvpMsg('🍺 Você tem R$ '+fmt(cons)+' de consumo do boteco em aberto. '
+            +'Pague na aba 💳 Pagar para liberar sua presença.','erro');
+    return;
+  }
   if(resp==='Vou' && ATRASADOS.has(nome) && ordinalSab(sabadoAtual)>=2){
     rsvpMsg('⚠️ Você está devendo o mês anterior — acerte o Pix pra poder jogar.','erro'); return;
   }
@@ -822,6 +867,69 @@ if(TM.times.length){
   document.getElementById('times-grid').innerHTML =
     '<p style="color:#888">Os times aparecem aqui assim que forem montados (normalmente no sábado, após as confirmações). 😉</p>';
 }
+
+// boteco
+const btSel = document.getElementById('bt-nome');
+btSel.innerHTML = '<option value="">— escolha seu nome —</option>' +
+  ROSTER.map(n=>`<option>${n}</option>`).join('');
+const btNomeSalvo = localStorage.getItem('rea_nome');
+if(btNomeSalvo && ROSTER.includes(btNomeSalvo)) btSel.value = btNomeSalvo;
+let BT_PROD = [], BT_CART = {};
+function btTotal(){
+  let t = 0;
+  BT_PROD.forEach(p=>{ t += (BT_CART[p.produto]||0) * p.preco; });
+  document.getElementById('bt-total').textContent = 'R$ ' + fmt(t);
+  document.getElementById('bt-enviar').disabled = !(t>0 && btSel.value);
+  return t;
+}
+function btRender(){
+  const cats = [...new Set(BT_PROD.map(p=>p.categoria))];
+  document.getElementById('bt-lista').innerHTML = cats.map(c=>{
+    const itens = BT_PROD.filter(p=>p.categoria===c).map(p=>{
+      const q = BT_CART[p.produto]||0, fora = p.estoque<=0;
+      return `<div class="bt-item ${fora?'bt-esgotado':''}">
+        <span class="bt-nome">${p.produto}</span>
+        <span class="bt-est">${fora?'esgotado':p.estoque+' un'}</span>
+        <span class="bt-preco">R$ ${fmt(p.preco)}</span>
+        <button class="bt-b" data-m="${p.produto}" ${q<1?'disabled':''}>−</button>
+        <span class="bt-qtd" id="q-${btId(p.produto)}">${q}</span>
+        <button class="bt-b" data-p="${p.produto}" ${fora||q>=p.estoque?'disabled':''}>+</button></div>`;
+    }).join('');
+    return `<div class="bt-cat">${c}</div>${itens}`;
+  }).join('');
+  document.querySelectorAll('#bt-lista .bt-b').forEach(b=>b.onclick=()=>{
+    const add = b.dataset.p, rem = b.dataset.m, nome = add||rem;
+    BT_CART[nome] = Math.max(0, (BT_CART[nome]||0) + (add?1:-1));
+    btRender(); btTotal();
+  });
+}
+function btId(s){ return s.replace(/[^a-z0-9]/gi,''); }
+fetch('/pix-racha/bar/produtos').then(r=>r.json()).then(d=>{
+  if(d.ok){ BT_PROD = d.itens; btRender(); btTotal(); }
+  else document.getElementById('bt-lista').innerHTML = '<p style="color:#888">Boteco indisponível no momento.</p>';
+}).catch(()=>{ document.getElementById('bt-lista').innerHTML =
+  '<p style="color:#888">Boteco indisponível no momento.</p>'; });
+btSel.addEventListener('change', ()=>{ localStorage.setItem('rea_nome', btSel.value); btTotal(); });
+document.getElementById('bt-enviar').onclick = ()=>{
+  const nome = btSel.value; if(!nome) return;
+  const itens = Object.entries(BT_CART).filter(([,q])=>q>0).map(([produto,qtd])=>({produto,qtd}));
+  if(!itens.length) return;
+  const ok = document.getElementById('bt-ok');
+  document.getElementById('bt-enviar').disabled = true;
+  ok.textContent = '⏳ Lançando...'; ok.className = 'rsvp-msg';
+  fetch('/pix-racha/bar/consumo',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({atleta:nome.toUpperCase(), itens})})
+    .then(r=>r.json()).then(d=>{
+      if(!d.ok){ ok.textContent='❌ '+(d.erro||'falhou'); ok.className='rsvp-msg erro';
+                 document.getElementById('bt-enviar').disabled=false; return; }
+      ok.innerHTML = '✅ Lançado R$ '+fmt(parseFloat(d.total))+' na sua conta. '
+                   + 'Em aberto: <b>R$ '+fmt(parseFloat(d.em_aberto))+'</b>';
+      ok.className = 'rsvp-msg ok';
+      BT_CART = {};
+      fetch('/pix-racha/bar/produtos').then(r=>r.json()).then(p=>{ if(p.ok){BT_PROD=p.itens; btRender(); btTotal();} });
+    }).catch(()=>{ ok.textContent='❌ Falhou. Tente de novo.'; ok.className='rsvp-msg erro';
+                   document.getElementById('bt-enviar').disabled=false; });
+};
 
 // abas
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{

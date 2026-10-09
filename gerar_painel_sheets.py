@@ -54,6 +54,11 @@ def carregar():
         out["Times"] = sh.worksheet("Times").get_all_records()
     except Exception:
         out["Times"] = []
+    for aba in ("BarProdutos", "BarConsumo"):   # boteco (opcional)
+        try:
+            out[aba] = sh.worksheet(aba).get_all_records()
+        except Exception:
+            out[aba] = []
     return out
 
 
@@ -310,7 +315,8 @@ def dados_financeiro(T):
             continue
         sa, mens = nf(r["s_a"]), nf(r["mensalidade"])
         multa, pago = nf(r["multa_chu"]), nf(r["valor_pago"])
-        total = sa + mens + multa
+        consumo = nf(r.get("consumo"))   # boteco entra na conta
+        total = sa + mens + multa + consumo
         saldo = total - pago
         # Atrasado = virou o mês devendo MENSALIDADE (s_a >= 90) e ainda não quitou essa
         # dívida antiga — mesmo que tenha pago uma parte. Multa pequena antiga (s_a < 90)
@@ -323,6 +329,34 @@ def dados_financeiro(T):
     ordem = {"Atrasado": 0, "Mês em aberto": 1, "Em dia": 2, "Isento": 3}
     linhas.sort(key=lambda x: (ordem[x["situacao"]], x["nome"]))
     return linhas
+
+
+def consumo_em_aberto(T):
+    """{Nome: valor} do consumo do boteco de sábados ANTERIORES ainda não pago.
+    O consumo de hoje não trava ninguém — vence no sábado seguinte."""
+    hoje = datetime.date.today()
+    por_atleta = {}
+    for c in T.get("BarConsumo", []):
+        d = data_iso(c.get("data"))
+        if d is None or d >= hoje:      # consumo de hoje ainda não vence
+            continue
+        nome = str(c.get("atleta", "")).strip().upper()
+        por_atleta[nome] = por_atleta.get(nome, 0.0) + nf(c.get("total"))
+    hoje_mes = f"{MESES[hoje.month - 1]} {hoje.year}"
+    out = {}
+    for r in T.get("Pagamentos", []):
+        if str(r.get("mes", "")).strip().upper() != hoje_mes:
+            continue
+        nome = str(r.get("atleta", "")).strip().upper()
+        antigo = por_atleta.get(nome, 0.0)
+        if antigo <= 0:
+            continue
+        fixos = nf(r.get("s_a")) + nf(r.get("mensalidade")) + nf(r.get("multa_chu"))
+        sobra = max(0.0, nf(r.get("valor_pago")) - fixos)   # o que sobrou abate consumo
+        aberto = round(min(antigo, max(0.0, nf(r.get("consumo")) - sobra)), 2)
+        if aberto > 0:
+            out[nome.title()] = aberto
+    return out
 
 
 def roster_ativos(T):
@@ -348,6 +382,7 @@ def montar(T):
         "rsvp_url": G.RSVP_URL,
         "roster": roster_ativos(T),
         "posicoes": dados_posicoes(T),
+        "consumo_aberto": consumo_em_aberto(T),
         "times": dados_times(T),
     }
 
