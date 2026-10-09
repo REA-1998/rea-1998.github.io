@@ -332,13 +332,12 @@ def dados_financeiro(T):
 
 
 def consumo_em_aberto(T):
-    """{Nome: valor} do consumo do boteco de sábados ANTERIORES ainda não pago.
-    O consumo de hoje não trava ninguém — vence no sábado seguinte."""
+    """{Nome: valor} de QUALQUER consumo do boteco ainda não pago — inclusive o do próprio
+    dia (ninguém confirma presença durante o racha, então travar no dia é o certo)."""
     hoje = datetime.date.today()
     por_atleta = {}
     for c in T.get("BarConsumo", []):
-        d = data_iso(c.get("data"))
-        if d is None or d >= hoje:      # consumo de hoje ainda não vence
+        if data_iso(c.get("data")) is None:
             continue
         nome = str(c.get("atleta", "")).strip().upper()
         por_atleta[nome] = por_atleta.get(nome, 0.0) + nf(c.get("total"))
