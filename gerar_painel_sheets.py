@@ -191,8 +191,14 @@ def dados_cobrancas(T):
         atleta_up = str(r.get("atleta", "")).strip().upper()
         if atleta_up not in ativos:  # saiu do racha -> não exibe cobrança
             continue
-        pago = (str(r.get("status", "")).strip().upper() == "CONCLUIDA"
-                or atleta_up in quitados)
+        # "pago" = não deve mais nada. Olhar só o status do QR engana quando o atleta
+        # quitou a mensalidade e DEPOIS consumiu no boteco (o QR fica CONCLUIDA mas ele deve).
+        devido_at = devidos.get(atleta_up)
+        if devido_at is not None:
+            pago = devido_at <= 0.009
+        else:
+            pago = (str(r.get("status", "")).strip().upper() == "CONCLUIDA"
+                    or atleta_up in quitados)
         copia = str(r.get("pix_copia_cola", "")).strip()
         qr_uri = ""
         if copia and qrcode and not pago:
@@ -207,7 +213,10 @@ def dados_cobrancas(T):
             valor_cob = float(str(r.get("valor", "0")).replace(",", "."))
         except (TypeError, ValueError):
             valor_cob = 0.0
-        desatualizado = devido is not None and abs(devido - valor_cob) > 0.01 and not pago
+        # QR só serve se ainda estiver ATIVA na Efí E com o valor certo
+        cob_ativa = str(r.get("status", "")).strip().upper() == "ATIVA"
+        desatualizado = (not pago) and (not cob_ativa or
+                                        (devido is not None and abs(devido - valor_cob) > 0.01))
         valor_real = devido if devido is not None else valor_cob
         itens.append({"nome": str(r.get("atleta", "")).strip().title(),
                       "valor": f"{valor_real:.2f}".replace(".", ","),
