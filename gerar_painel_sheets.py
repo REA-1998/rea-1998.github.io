@@ -177,6 +177,15 @@ def dados_cobrancas(T):
         elif ativa and str(r.get("criado_em", "")) > str(ant.get("criado_em", "")):
             por_atleta[nome_up] = r
 
+    # valor REALMENTE devido por atleta no mês (mensalidade + multa + saldo + boteco − pago)
+    devidos = {}
+    for p in T.get("Pagamentos", []):
+        if str(p.get("mes", "")).strip().upper() != mes.upper():
+            continue
+        v = (nf(p.get("s_a")) + nf(p.get("mensalidade")) + nf(p.get("multa_chu"))
+             + nf(p.get("consumo")) - nf(p.get("valor_pago")))
+        devidos[str(p.get("atleta", "")).strip().upper()] = round(max(0.0, v), 2)
+
     itens = []
     for r in por_atleta.values():
         atleta_up = str(r.get("atleta", "")).strip().upper()
@@ -191,13 +200,20 @@ def dados_cobrancas(T):
             buf = io.BytesIO()
             img.save(buf, format="PNG")
             qr_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        # o QR é emitido no dia 1º; se depois entrou consumo do boteco (ou houve pagamento
+        # parcial), o valor devido mudou — nesse caso o site oferece gerar o Pix correto
+        devido = devidos.get(atleta_up)
         try:
-            valor_fmt = f"{float(str(r.get('valor', '0')).replace(',', '.')):.2f}".replace(".", ",")
+            valor_cob = float(str(r.get("valor", "0")).replace(",", "."))
         except (TypeError, ValueError):
-            valor_fmt = str(r.get("valor", "")).strip()
+            valor_cob = 0.0
+        desatualizado = devido is not None and abs(devido - valor_cob) > 0.01 and not pago
+        valor_real = devido if devido is not None else valor_cob
         itens.append({"nome": str(r.get("atleta", "")).strip().title(),
-                      "valor": valor_fmt,
-                      "copia": copia, "qr": qr_uri, "pago": pago})
+                      "valor": f"{valor_real:.2f}".replace(".", ","),
+                      "copia": "" if desatualizado else copia,
+                      "qr": "" if desatualizado else qr_uri,
+                      "pago": pago, "sem_cobranca": desatualizado})
 
     # Quem deve mas NÃO tem cobrança emitida (ex.: isento de mensalidade que consumiu no
     # boteco) também precisa aparecer — o site oferece gerar o Pix na hora.
