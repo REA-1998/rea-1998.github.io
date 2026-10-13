@@ -198,6 +198,22 @@ def dados_cobrancas(T):
         itens.append({"nome": str(r.get("atleta", "")).strip().title(),
                       "valor": valor_fmt,
                       "copia": copia, "qr": qr_uri, "pago": pago})
+
+    # Quem deve mas NÃO tem cobrança emitida (ex.: isento de mensalidade que consumiu no
+    # boteco) também precisa aparecer — o site oferece gerar o Pix na hora.
+    ja_listado = {i["nome"].upper() for i in itens}
+    for p in T.get("Pagamentos", []):
+        if str(p.get("mes", "")).strip().upper() != mes.upper():
+            continue
+        nome_up = str(p.get("atleta", "")).strip().upper()
+        if nome_up in ja_listado or nome_up not in ativos:
+            continue
+        devido = (nf(p.get("s_a")) + nf(p.get("mensalidade")) + nf(p.get("multa_chu"))
+                  + nf(p.get("consumo")) - nf(p.get("valor_pago")))
+        if devido <= 0.009:
+            continue
+        itens.append({"nome": nome_up.title(), "valor": f"{devido:.2f}".replace(".", ","),
+                      "copia": "", "qr": "", "pago": False, "sem_cobranca": True})
     itens.sort(key=lambda x: x["nome"])
     return {"mes": mes, "itens": itens}
 
@@ -331,6 +347,33 @@ def dados_financeiro(T):
     return linhas
 
 
+def dados_boteco(T):
+    """Extrato do boteco do mês: por atleta, itens agregados + total + quanto está em aberto.
+    Fica visível no site para todo mundo conferir."""
+    hoje = datetime.date.today()
+    mes_ini = hoje.replace(day=1)
+    por, itens = {}, {}
+    for c in T.get("BarConsumo", []):
+        d = data_iso(c.get("data"))
+        if d is None or d < mes_ini:
+            continue
+        nome = str(c.get("atleta", "")).strip().title()
+        prod = str(c.get("produto", "")).strip()
+        qtd = int(nf(c.get("qtd")))
+        por[nome] = por.get(nome, 0.0) + nf(c.get("total"))
+        itens.setdefault(nome, {})
+        itens[nome][prod] = itens[nome].get(prod, 0) + qtd
+    aberto = consumo_em_aberto(T)
+    lista = []
+    for nome in sorted(por, key=lambda n: -por[n]):
+        lista.append({"nome": nome, "total": round(por[nome], 2),
+                      "aberto": round(aberto.get(nome, 0.0), 2),
+                      "itens": [{"produto": p, "qtd": q} for p, q in
+                                sorted(itens[nome].items(), key=lambda kv: -kv[1])]})
+    return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
+            "total": round(sum(por.values()), 2), "atletas": lista}
+
+
 def consumo_em_aberto(T):
     """{Nome: valor} de QUALQUER consumo do boteco ainda não pago — inclusive o do próprio
     dia (ninguém confirma presença durante o racha, então travar no dia é o certo)."""
@@ -382,6 +425,7 @@ def montar(T):
         "roster": roster_ativos(T),
         "posicoes": dados_posicoes(T),
         "consumo_aberto": consumo_em_aberto(T),
+        "boteco": dados_boteco(T),
         "times": dados_times(T),
     }
 

@@ -88,10 +88,15 @@ def _somar_consumo_na_conta(sh, atleta, mes, valor):
             pg.update(values=[[f"{novo:.2f}"]], range_name=rowcol_to_a1(i, gi("consumo")+1),
                       value_input_option="RAW")
             return novo
+    isento = any(str(a.get("nome", "")).strip().upper() == atleta.upper()
+                 and str(a.get("isento_mensalidade", "")).strip().lower() == "sim"
+                 for a in sh.worksheet("Atletas").get_all_records())
     row = [""] * len(gh)
     row[gi("mes")] = mes; row[gi("atleta")] = atleta
-    row[gi("mensalidade")] = "90"; row[gi("consumo")] = f"{valor:.2f}"
-    row[gi("valor_pago")] = "0"; row[gi("obs")] = "linha criada pelo boteco"
+    row[gi("mensalidade")] = "0" if isento else "90"
+    row[gi("consumo")] = f"{valor:.2f}"
+    row[gi("valor_pago")] = "0"
+    row[gi("obs")] = "linha criada pelo boteco" + (" (isento de mensalidade)" if isento else "")
     pg.append_row(row, value_input_option="RAW")
     return valor
 

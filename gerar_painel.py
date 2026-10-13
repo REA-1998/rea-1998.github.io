@@ -597,6 +597,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="pixtxt">
         <b>Mensalidade <span id="pagar-mes"></span></b>
         <div class="pixsub">Valor: <b id="pagar-valor"></b></div>
+        <div class="pixsub" id="pagar-extrato" style="margin:6px 0"></div>
         <div class="pixkey" id="pagar-copia"></div>
         <div class="pixbtns">
           <button id="btn-copia-pix">📋 Copiar código Pix</button>
@@ -638,6 +639,9 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="rsvp-msg" id="bt-msg">Escolha seu nome e marque o que pegou.</div>
     </div>
     <div id="bt-lista"></div>
+    <h3 style="margin-top:22px;font-size:1rem">🧾 Consumo do mês — confira o seu</h3>
+    <table><thead><tr><th>Atleta</th><th>O que consumiu</th><th class="num">Total</th>
+      <th class="num">Em aberto</th></tr></thead><tbody id="bt-extrato"></tbody></table>
     <div class="bt-bar">
       <div style="display:flex;align-items:center;gap:12px">
         <span class="bt-total">Total: <span id="bt-total">R$ 0,00</span></span>
@@ -797,12 +801,39 @@ function mostrarCobranca(){
   document.getElementById('pagar-mes').textContent = COB.mes;
   document.getElementById('pagar-valor').textContent = 'R$ ' + it.valor;
   document.getElementById('pagar-copia').textContent = it.copia;
+  // extrato: quanto do valor é boteco
+  const bt = ((D.boteco||{}).atletas||[]).find(a=>a.nome===selPag.value);
+  const ext = document.getElementById('pagar-extrato');
+  if(bt && bt.total>0){
+    ext.innerHTML = '🍺 <b>Boteco:</b> R$ '+fmt(bt.total)+' ('
+      + bt.itens.map(x=>x.qtd+'x '+x.produto).join(', ') + ')'
+      + (bt.aberto>0 ? ' — <b>em aberto: R$ '+fmt(bt.aberto)+'</b>' : ' — ✅ pago');
+  } else { ext.innerHTML=''; }
   const qr = document.getElementById('pagar-qr');
   const ok = document.getElementById('pagar-ok');
   const btn = document.getElementById('btn-copia-pix');
   if(it.pago){
     qr.style.display='none'; btn.style.display='none';
-    ok.innerHTML = '✅ <b>Pago!</b> Mensalidade em dia.';
+    ok.innerHTML = '✅ <b>Pago!</b> Tudo em dia.';
+  } else if(it.sem_cobranca){
+    // sem QR emitido (ex.: isento que consumiu) -> gera na hora
+    qr.style.display='none'; btn.style.display='none';
+    ok.innerHTML = '<button id="btn-gerar-pix" style="background:#1a5fb4;color:#fff;border:0;'
+      + 'border-radius:8px;padding:8px 14px;font-weight:bold;cursor:pointer">'
+      + '💳 Gerar meu Pix de R$ '+it.valor+'</button>';
+    document.getElementById('btn-gerar-pix').onclick = ()=>{
+      const v = parseFloat(String(it.valor).replace(',','.'));
+      ok.textContent='⏳ Gerando...';
+      fetch('/pix-racha/cobranca',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({atleta:selPag.value.toUpperCase(), valor:v})})
+        .then(r=>r.json()).then(d=>{
+          if(!d.ok){ ok.textContent='❌ '+(d.erro||'falhou'); return; }
+          it.copia = d.copia;
+          document.getElementById('pagar-copia').textContent = d.copia;
+          btn.style.display='';
+          ok.innerHTML='✅ Pix gerado! Toque em <b>Copiar código Pix</b>.';
+        }).catch(()=>{ ok.textContent='❌ Falhou. Tente de novo.'; });
+    };
   } else {
     qr.style.display=''; qr.src = it.qr; btn.style.display=''; ok.textContent='';
   }
@@ -904,6 +935,18 @@ function btRender(){
   });
 }
 function btId(s){ return s.replace(/[^a-z0-9]/gi,''); }
+function btExtrato(){
+  const B = D.boteco||{atletas:[],total:0};
+  const tb = document.getElementById('bt-extrato');
+  if(!B.atletas.length){ tb.innerHTML='<tr><td colspan="4" class="vazio">ninguém consumiu ainda neste mês</td></tr>'; return; }
+  tb.innerHTML = B.atletas.map(a=>`<tr>
+    <td><b>${a.nome}</b></td>
+    <td style="font-size:.8rem;color:#555">${a.itens.map(x=>x.qtd+'x '+x.produto).join(', ')}</td>
+    <td class="num">R$ ${fmt(a.total)}</td>
+    <td class="num">${a.aberto>0?'<span class="chip atrasado">R$ '+fmt(a.aberto)+'</span>':'<span class="chip emdia">pago</span>'}</td>
+  </tr>`).join('') + `<tr><td colspan="2"><b>TOTAL</b></td><td class="num"><b>R$ ${fmt(B.total)}</b></td><td></td></tr>`;
+}
+btExtrato();
 fetch('/pix-racha/bar/produtos').then(r=>r.json()).then(d=>{
   if(d.ok){ BT_PROD = d.itens; btRender(); btTotal(); }
   else document.getElementById('bt-lista').innerHTML = '<p style="color:#888">Boteco indisponível no momento.</p>';
@@ -923,7 +966,8 @@ document.getElementById('bt-enviar').onclick = ()=>{
       if(!d.ok){ ok.textContent='❌ '+(d.erro||'falhou'); ok.className='rsvp-msg erro';
                  document.getElementById('bt-enviar').disabled=false; return; }
       ok.innerHTML = '✅ Lançado R$ '+fmt(parseFloat(d.total))+' na sua conta. '
-                   + 'Em aberto: <b>R$ '+fmt(parseFloat(d.em_aberto))+'</b>';
+                   + 'Em aberto: <b>R$ '+fmt(parseFloat(d.em_aberto))+'</b>'
+                   + '<br><span style="font-size:.75rem">Aparece na tabela abaixo (atualiza em até 15 min) e na aba 💳 Pagar.</span>';
       ok.className = 'rsvp-msg ok';
       BT_CART = {};
       fetch('/pix-racha/bar/produtos').then(r=>r.json()).then(p=>{ if(p.ok){BT_PROD=p.itens; btRender(); btTotal();} });
