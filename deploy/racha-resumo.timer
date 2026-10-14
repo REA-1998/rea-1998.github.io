@@ -1,0 +1,9 @@
+[Unit]
+Description=Manda o resumo do boteco toda terca-feira as 9h
+
+[Timer]
+OnCalendar=Tue *-*-* 09:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

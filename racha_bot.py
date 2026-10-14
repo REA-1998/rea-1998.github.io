@@ -96,6 +96,7 @@ Responda SÓ com JSON neste formato:
 
 pendentes = {}  # chat_id -> dict extraído (súmula)
 pendentes_times = {}  # chat_id -> {"res": resultado, "sabado": "DD/MM/AAAA"}
+pendentes_desfazer = {}  # chat_id -> (linha, registro do BarConsumo)
 
 
 def sheet():
@@ -421,6 +422,86 @@ def gravar_times(res: dict, sabado: str):
               + M.para_linhas(res, sabado), range_name="A1", value_input_option="RAW")
 
 
+def _nfb(x):
+    try:
+        return float(str(x).replace(",", ".") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def ultimo_consumo(nome):
+    """Último lançamento do boteco daquele atleta: (linha, dict) ou (None, None)."""
+    sh = sheet()
+    cv = sh.worksheet("BarConsumo").get_all_values()
+    ch = cv[0]
+    alvo = _chave(nome)
+    achado = None
+    for i, r in enumerate(cv[1:], start=2):
+        if _chave(r[ch.index("atleta")]) == alvo:
+            achado = (i, dict(zip(ch, r)))
+    return achado if achado else (None, None)
+
+
+def desfazer_consumo(linha, reg):
+    """Apaga o lançamento, devolve ao estoque e tira da conta do atleta."""
+    sh = sheet()
+    atleta = str(reg["atleta"]).strip().upper()
+    produto = str(reg["produto"]).strip()
+    qtd = int(_nfb(reg["qtd"]))
+    valor = _nfb(reg["total"])
+    # devolve estoque
+    pw = sh.worksheet("BarProdutos")
+    pv = pw.get_all_values()
+    ph = pv[0]
+    for i, r in enumerate(pv[1:], start=2):
+        if r[ph.index("produto")].strip().lower() == produto.lower():
+            novo = int(_nfb(r[ph.index("estoque")])) + qtd
+            pw.update(values=[[novo]], range_name=rowcol_to_a1(i, ph.index("estoque") + 1),
+                      value_input_option="RAW")
+            break
+    # tira da conta
+    gw = sh.worksheet("Pagamentos")
+    gv = gw.get_all_values()
+    gh = gv[0]
+    mes = str(reg["data"])[:7]
+    M = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
+    mes_lbl = f"{M[int(mes[5:7]) - 1]} {mes[:4]}"
+    for i, r in enumerate(gv[1:], start=2):
+        if (r[gh.index("mes")].strip().upper() == mes_lbl
+                and r[gh.index("atleta")].strip().upper() == atleta):
+            novo = max(0.0, _nfb(r[gh.index("consumo")]) - valor)
+            gw.update(values=[[f"{novo:.2f}"]], range_name=rowcol_to_a1(i, gh.index("consumo") + 1),
+                      value_input_option="RAW")
+            break
+    sh.worksheet("BarConsumo").delete_rows(linha)
+    return f"{qtd}x {produto} (R$ {valor:.2f})"
+
+
+async def cmd_desfazer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """'desfazer NOME' — remove o último lançamento do boteco daquele atleta."""
+    if not so_eu(update):
+        await negar_acesso(update)
+        return
+    txt = (update.message.text or "").strip()
+    nome = _re.sub(r"^/?desfazer\s*", "", txt, flags=_re.I).strip()
+    if not nome:
+        await update.message.reply_text("Use: *desfazer NOME* (ex.: desfazer Charles)")
+        return
+    linha, reg = await asyncio.to_thread(ultimo_consumo, nome)
+    if not linha:
+        await update.message.reply_text(f"Não achei nenhum lançamento do boteco para '{nome}'.")
+        return
+    pendentes_desfazer[update.effective_chat.id] = (linha, reg)
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Desfazer", callback_data="und_ok"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="und_no")]])
+    await update.message.reply_text(
+        f"🍺 Último lançamento de {str(reg['atleta']).title()}:\n"
+        f"   {int(_nfb(reg['qtd']))}x {reg['produto']} — R$ {_nfb(reg['total']):.2f}\n"
+        f"   (registrado em {reg.get('registrado_em', '')})\n\n"
+        "Desfazer? O item volta ao estoque e sai da conta dele.", reply_markup=kb)
+
+
 def _kb_times():
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("📣 Publicar no site", callback_data="times_ok"),
@@ -481,7 +562,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "⚽ Bot do Racha REA pronto!\nManda a foto da súmula que eu leio, "
-        "te mando o resumo pra conferir e, no seu OK, lanço no painel.")
+        "te mando o resumo pra conferir e, no seu OK, lanço no painel.\n\n"
+        "Comandos: 2times / 3times (montar times) · desfazer NOME (corrigir boteco)")
 
 
 async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -512,6 +594,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
     if _re.match(r"^/?([234]\s*)?times", txt.lower()):
         return await cmd_times(update, ctx)
+    if _re.match(r"^/?desfazer", txt.lower()):
+        return await cmd_desfazer(update, ctx)
     d = pendentes.get(cid)
     if not d and cid in pendentes_times:
         # ajuste dos times por chat
@@ -551,6 +635,21 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if q.from_user.id not in ALLOWED_IDS:
         return
     cid = q.message.chat.id
+    if q.data in ("und_ok", "und_no"):
+        pend = pendentes_desfazer.pop(cid, None)
+        if q.data == "und_no" or not pend:
+            await q.edit_message_text("❌ Cancelado — nada foi alterado.")
+            return
+        await q.edit_message_text("⏳ Desfazendo...")
+        try:
+            desc = await asyncio.to_thread(desfazer_consumo, pend[0], pend[1])
+            await asyncio.to_thread(republicar)
+            await q.message.reply_text(
+                f"✅ Desfeito: {desc} de {str(pend[1]['atleta']).title()}.\n"
+                "Voltou ao estoque e saiu da conta dele. Site já atualizado.")
+        except Exception as e:
+            await q.message.reply_text(f"❌ Erro ao desfazer: {e}")
+        return
     if q.data in ("times_ok", "times_no"):
         pt = pendentes_times.pop(cid, None)
         if q.data == "times_no" or not pt:
@@ -602,6 +701,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("times", cmd_times))
+    app.add_handler(CommandHandler("desfazer", cmd_desfazer))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_button))

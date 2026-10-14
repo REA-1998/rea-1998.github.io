@@ -1,0 +1,11 @@
+[Unit]
+Description=Resumo semanal do boteco no Telegram (Racha REA)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=racha
+WorkingDirectory=/opt/racha/app
+EnvironmentFile=/opt/racha/app/.env
+ExecStart=/opt/racha/venv/bin/python resumo_boteco.py
