@@ -106,14 +106,32 @@ def montar(sh):
         L.append("  " + " · ".join(f"{n} R$ {v:.2f}" for n, v in devendo))
     else:
         L.append("\n✅ Ninguém devendo o boteco!")
-    if baixo or zerado:
-        L.append("\n📦 <b>Estoque</b>")
-        if baixo:
-            L.append("  ⚠️ acabando: " + ", ".join(f"{p} ({q})" for p, q in baixo))
-        if zerado:
-            L.append("  ❌ zerado: " + ", ".join(zerado))
-    else:
-        L.append("\n📦 Estoque tranquilo.")
+    # estoque item a item: tinha / saiu / sobrou
+    saiu_mes = collections.defaultdict(int)
+    for c in cons:
+        try:
+            d = datetime.date.fromisoformat(str(c.get("data")).strip())
+        except ValueError:
+            continue
+        if d >= ini_mes:
+            saiu_mes[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
+    L.append("\n📦 <b>Estoque item a item</b> (tinha → saiu → sobrou)")
+    cat_ant = None
+    for p in prods:
+        nome = str(p["produto"]).strip()
+        sobrou = int(nf(p["estoque"]))
+        saiu = saiu_mes.get(nome, 0)
+        tinha = sobrou + saiu
+        if tinha == 0 and saiu == 0:
+            continue
+        cat = str(p.get("categoria", "")).strip()
+        if cat != cat_ant:
+            L.append(f"  <u>{cat}</u>")
+            cat_ant = cat
+        alerta = " ⚠️" if 0 < sobrou <= ESTOQUE_BAIXO else (" ❌" if sobrou <= 0 else "")
+        L.append(f"  {nome}: {tinha} → saiu {saiu} → <b>sobrou {sobrou}</b>{alerta}")
+    if zerado:
+        L.append("  ❌ zerados: " + ", ".join(zerado))
     L.append(f"\n💵 Em estoque: custo R$ {custo_estq:.2f} · venda R$ {venda_estq:.2f}")
     L.append("\n🌐 https://racharea.com.br (aba 🍺 Boteco)")
     L.append("<i>Para corrigir um lançamento: mande \"desfazer NOME\" aqui.</i>")
