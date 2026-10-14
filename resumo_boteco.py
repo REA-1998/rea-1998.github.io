@@ -106,32 +106,35 @@ def montar(sh):
         L.append("  " + " · ".join(f"{n} R$ {v:.2f}" for n, v in devendo))
     else:
         L.append("\n✅ Ninguém devendo o boteco!")
-    # estoque item a item: tinha / saiu / sobrou
-    saiu_mes = collections.defaultdict(int)
+    # estoque compacto: Item estoque(vendido na semana)
+    saiu_sem = collections.defaultdict(int)
     for c in cons:
         try:
             d = datetime.date.fromisoformat(str(c.get("data")).strip())
         except ValueError:
             continue
-        if d >= ini_mes:
-            saiu_mes[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
-    L.append("\n📦 <b>Estoque item a item</b> (tinha → saiu → sobrou)")
-    cat_ant = None
+        if d >= semana:
+            saiu_sem[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
+    L.append("\n📦 <b>Estoque</b> — item <b>resta</b>(vendido na semana)")
+    EMOJI_CAT = {"Cerveja": "🍺", "Refri": "🥤", "Bebida": "💧", "Salgado": "🍟"}
+    por_cat = collections.OrderedDict()
     for p in prods:
-        nome = str(p["produto"]).strip()
-        sobrou = int(nf(p["estoque"]))
-        saiu = saiu_mes.get(nome, 0)
-        tinha = sobrou + saiu
-        if tinha == 0 and saiu == 0:
-            continue
         cat = str(p.get("categoria", "")).strip()
-        if cat != cat_ant:
-            L.append(f"  <u>{cat}</u>")
-            cat_ant = cat
-        alerta = " ⚠️" if 0 < sobrou <= ESTOQUE_BAIXO else (" ❌" if sobrou <= 0 else "")
-        L.append(f"  {nome}: {tinha} → saiu {saiu} → <b>sobrou {sobrou}</b>{alerta}")
+        por_cat.setdefault(cat, []).append(p)
+    for cat, itens in por_cat.items():
+        partes = []
+        for p in itens:
+            nome = str(p["produto"]).strip()
+            est = int(nf(p["estoque"]))
+            vend = saiu_sem.get(nome, 0)
+            if est == 0 and vend == 0:
+                continue
+            marca = " ⚠️" if 0 < est <= ESTOQUE_BAIXO else ("❌" if est <= 0 else "")
+            partes.append(f"{nome} <b>{est}</b>({vend}){marca}")
+        if partes:
+            L.append(f"{EMOJI_CAT.get(cat, '•')} {cat}: " + " · ".join(partes))
     if zerado:
-        L.append("  ❌ zerados: " + ", ".join(zerado))
+        L.append("❌ Zerados: " + ", ".join(zerado))
     L.append(f"\n💵 Em estoque: custo R$ {custo_estq:.2f} · venda R$ {venda_estq:.2f}")
     L.append("\n🌐 https://racharea.com.br (aba 🍺 Boteco)")
     L.append("<i>Para corrigir um lançamento: mande \"desfazer NOME\" aqui.</i>")
