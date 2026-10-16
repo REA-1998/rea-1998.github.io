@@ -418,9 +418,9 @@ def consumo_em_aberto(T):
         antigo = por_atleta.get(nome, 0.0)
         if antigo <= 0:
             continue
-        fixos = nf(r.get("s_a")) + nf(r.get("mensalidade")) + nf(r.get("multa_chu"))
-        sobra = max(0.0, nf(r.get("valor_pago")) - fixos)   # o que sobrou abate consumo
-        aberto = round(min(antigo, max(0.0, nf(r.get("consumo")) - sobra)), 2)
+        # o pagamento abate PRIMEIRO o boteco (dívida de curto prazo, que trava a presença);
+        # o que sobrar vai para mensalidade/multa/saldo antigo
+        aberto = round(min(antigo, max(0.0, nf(r.get("consumo")) - nf(r.get("valor_pago")))), 2)
         if aberto > 0:
             out[nome.title()] = aberto
     return out

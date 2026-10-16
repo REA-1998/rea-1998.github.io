@@ -65,14 +65,12 @@ TETO_CONSUMO = float(os.environ.get("BAR_TETO", "100"))
 
 def _consumo_aberto(sh, atleta, mes):
     """Quanto o atleta tem de consumo ainda não pago no mês.
-    O pagamento abate primeiro mensalidade/multa/saldo antigo; o que sobra abate consumo."""
+    O pagamento abate PRIMEIRO o boteco (dívida de curto prazo, que trava a presença);
+    o que sobrar vai para mensalidade/multa/saldo antigo."""
     for r in sh.worksheet("Pagamentos").get_all_records():
         if (str(r.get("mes", "")).strip().upper() == mes.upper()
                 and str(r.get("atleta", "")).strip().upper() == atleta.upper()):
-            fixos = _nf(r.get("s_a")) + _nf(r.get("mensalidade")) + _nf(r.get("multa_chu"))
-            consumo = _nf(r.get("consumo"))
-            sobra = max(0.0, _nf(r.get("valor_pago")) - fixos)
-            return max(0.0, round(consumo - sobra, 2))
+            return max(0.0, round(_nf(r.get("consumo")) - _nf(r.get("valor_pago")), 2))
     return 0.0
 
 

@@ -639,9 +639,10 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="rsvp-msg" id="bt-msg">Escolha seu nome e marque o que pegou.</div>
     </div>
     <div id="bt-lista"></div>
-    <h3 style="margin-top:22px;font-size:1rem">🧾 Consumo do mês — confira o seu</h3>
-    <table><thead><tr><th>Atleta</th><th>O que consumiu</th><th class="num">Total</th>
-      <th class="num">Em aberto</th></tr></thead><tbody id="bt-extrato"></tbody></table>
+    <h3 style="margin-top:22px;font-size:1rem">🧾 Quem ainda deve o boteco</h3>
+    <table><thead><tr><th>Atleta</th><th>O que consumiu</th><th class="num">Em aberto</th></tr></thead>
+      <tbody id="bt-extrato"></tbody></table>
+    <div id="bt-pagos" style="font-size:.75rem;color:#777;margin-top:8px"></div>
     <div class="bt-bar">
       <div style="display:flex;align-items:center;gap:12px">
         <span class="bt-total">Total: <span id="bt-total">R$ 0,00</span></span>
@@ -938,13 +939,24 @@ function btId(s){ return s.replace(/[^a-z0-9]/gi,''); }
 function btExtrato(){
   const B = D.boteco||{atletas:[],total:0};
   const tb = document.getElementById('bt-extrato');
-  if(!B.atletas.length){ tb.innerHTML='<tr><td colspan="4" class="vazio">ninguém consumiu ainda neste mês</td></tr>'; return; }
-  tb.innerHTML = B.atletas.map(a=>`<tr>
-    <td><b>${a.nome}</b></td>
-    <td style="font-size:.8rem;color:#555">${a.itens.map(x=>x.qtd+'x '+x.produto).join(', ')}</td>
-    <td class="num">R$ ${fmt(a.total)}</td>
-    <td class="num">${a.aberto>0?'<span class="chip atrasado">R$ '+fmt(a.aberto)+'</span>':'<span class="chip emdia">pago</span>'}</td>
-  </tr>`).join('') + `<tr><td colspan="2"><b>TOTAL</b></td><td class="num"><b>R$ ${fmt(B.total)}</b></td><td></td></tr>`;
+  const devem = B.atletas.filter(a=>a.aberto>0);
+  const pagos = B.atletas.filter(a=>!(a.aberto>0));
+  if(!B.atletas.length){ tb.innerHTML='<tr><td colspan="3" class="vazio">ninguém consumiu ainda neste mês</td></tr>'; }
+  else if(!devem.length){ tb.innerHTML='<tr><td colspan="3" class="vazio">✅ todo mundo em dia com o boteco!</td></tr>'; }
+  else {
+    const aberto = devem.reduce((s,a)=>s+a.aberto,0);
+    tb.innerHTML = devem.map(a=>`<tr>
+      <td><b>${a.nome}</b></td>
+      <td style="font-size:.8rem;color:#555">${a.itens.map(x=>x.qtd+'x '+x.produto).join(', ')}</td>
+      <td class="num"><span class="chip atrasado">R$ ${fmt(a.aberto)}</span></td>
+    </tr>`).join('')
+    + `<tr><td colspan="2"><b>TOTAL A RECEBER</b></td><td class="num"><b>R$ ${fmt(aberto)}</b></td></tr>`;
+  }
+  const pg = document.getElementById('bt-pagos');
+  if(pagos.length){
+    pg.innerHTML = '✅ <b>Já pagaram:</b> ' + pagos.map(a=>a.nome+' (R$ '+fmt(a.total)+')').join(' · ')
+      + ' — total consumido no mês: R$ ' + fmt(B.total);
+  } else { pg.innerHTML = ''; }
 }
 btExtrato();
 fetch('/pix-racha/bar/produtos').then(r=>r.json()).then(d=>{
