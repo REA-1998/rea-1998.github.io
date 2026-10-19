@@ -139,9 +139,27 @@ def montar(sh):
     L.append(f"\n💵 Em estoque: custo R$ {custo_estq:.2f} · venda R$ {venda_estq:.2f}")
     L.append("")
     L.append(confere_estoque(sh, prods, cons))
+    L.append(confere_precos(prods))
     L.append("\n🌐 https://racharea.com.br (aba 🍺 Boteco)")
     L.append("<i>Para corrigir um lançamento: mande \"desfazer NOME\" aqui.</i>")
     return "\n".join(L)
+
+
+def confere_precos(prods):
+    """Confere se o preço de venda ainda é custo + margem. Pega preço mexido na mão ou
+    custo que mudou sem o preço acompanhar."""
+    try:
+        import precos as P
+    except Exception:
+        return ""
+    fora = P.conferir(prods)
+    if not fora:
+        return "✅ Preços conferem: custo + margem, item por item."
+    linhas = ["⚠️ <b>Preço fora da margem</b>"]
+    for nome, c, m, atual, certo in fora:
+        linhas.append(f"• {nome}: está R$ {atual:.2f}, com {m * 100:.0f}% seria R$ {certo:.2f}")
+    return chr(10).join(linhas)
+
 
 
 def confere_estoque(sh, prods, cons):

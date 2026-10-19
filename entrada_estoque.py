@@ -29,7 +29,8 @@ import gspread
 from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
-MARGEM = {"Cerveja": 0.15, "Refri": 0.15, "Bebida": 0.15, "Salgado": 0.40}
+import precos as P  # custo + margem -> preco (fonte unica)
+
 HDR = ["data", "produto", "qtd", "custo_un", "total", "fornecedor", "obs", "registrado_em"]
 
 
@@ -97,8 +98,8 @@ def main():
         ups.append({"range": rowcol_to_a1(i, ph.index("estoque") + 1), "values": [[est_novo]]})
         extra = ""
         if a.preco and custo is not None and abs(custo - nf(r.get("custo"))) > 0.001:
-            m = MARGEM.get(str(r.get("categoria", "")).strip(), 0.15)
-            venda = round(c * (1 + m) + 1e-9, 2)
+            m = P.margem_de(r)
+            venda = P.preco_de(c, m)
             ups.append({"range": rowcol_to_a1(i, ph.index("custo") + 1), "values": [[c]]})
             ups.append({"range": rowcol_to_a1(i, ph.index("preco") + 1), "values": [[venda]]})
             extra = f"   custo {nf(r.get('custo')):.2f}->{c:.2f}  venda ->{venda:.2f}"
