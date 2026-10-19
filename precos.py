@@ -76,6 +76,8 @@ def garantir_coluna(w, hdr, nome):
     if nome in hdr:
         return hdr, hdr.index(nome) + 1
     col = len(hdr) + 1
+    if w.col_count < col:                 # a aba precisa ter a coluna antes de escrever nela
+        w.add_cols(col - w.col_count)
     w.update(values=[[nome]], range_name=rowcol_to_a1(1, col), value_input_option="RAW")
     return hdr + [nome], col
 
