@@ -368,53 +368,55 @@ def dados_financeiro(T):
 
 
 def dados_boteco(T):
-    """Extrato do boteco do mês: por atleta, itens agregados + total + quanto está em aberto.
-    Fica visível no site para todo mundo conferir."""
+    """Extrato do boteco do mês: por atleta, quanto consumiu no mês, quanto ainda deve e
+    QUAIS ITENS estão em aberto. Fica visível no site para todo mundo conferir.
+
+    A lista de itens mostra só o que falta pagar, não o histórico do mês: quem já acertou
+    parte da conta via o QR não precisa ver de novo o que já pagou."""
     hoje = datetime.date.today()
     mes_ini = hoje.replace(day=1)
-    por, itens = {}, {}
+    por = {}
     for c in T.get("BarConsumo", []):
         d = data_iso(c.get("data"))
         if d is None or d < mes_ini:
             continue
         nome = str(c.get("atleta", "")).strip().title()
-        prod = str(c.get("produto", "")).strip()
-        qtd = int(nf(c.get("qtd")))
         por[nome] = por.get(nome, 0.0) + nf(c.get("total"))
-        itens.setdefault(nome, {})
-        itens[nome][prod] = itens[nome].get(prod, 0) + qtd
-    aberto = consumo_em_aberto(T)
+    ext = extratos_do_mes(T)
     lista = []
     for nome in sorted(por, key=lambda n: -por[n]):
+        e = ext.get(nome.upper())
         lista.append({"nome": nome, "total": round(por[nome], 2),
-                      "aberto": round(aberto.get(nome, 0.0), 2),
-                      "itens": [{"produto": p, "qtd": q} for p, q in
-                                sorted(itens[nome].items(), key=lambda kv: -kv[1])]})
+                      "aberto": round(e["boteco_aberto"], 2) if e else 0.0,
+                      "itens": (e or {}).get("boteco_itens", [])})
     return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
             "total": round(sum(por.values()), 2), "atletas": lista}
+
+
+def extratos_do_mes(T):
+    """{ATLETA: extrato} de quem consumiu no boteco neste mês — uma conta só para o site
+    inteiro (lista de itens, valor em aberto e trava de presença)."""
+    hoje = datetime.date.today()
+    ini_mes = hoje.replace(day=1)
+    cons_ts = C.consumos_por_atleta(T.get("BarConsumo", []), ini=ini_mes)
+    pgto_ts = C.pagamentos_por_atleta(T.get("PixCobrancas", []), ini=ini_mes)
+    mes = f"{MESES[hoje.month - 1]} {hoje.year}"
+    out = {}
+    for r in T.get("Pagamentos", []):
+        if str(r.get("mes", "")).strip().upper() != mes:
+            continue
+        nome = str(r.get("atleta", "")).strip().upper()
+        if not cons_ts.get(nome):
+            continue
+        out[nome] = C.extrato(r, cons_ts[nome], pgto_ts.get(nome, []), ini_mes)
+    return out
 
 
 def consumo_em_aberto(T):
     """{Nome: valor} de QUALQUER consumo do boteco ainda não pago — inclusive o do próprio
     dia (ninguém confirma presença durante o racha, então travar no dia é o certo)."""
-    hoje = datetime.date.today()
-    ini_mes = hoje.replace(day=1)
-    cons_ts = C.consumos_por_atleta(T.get("BarConsumo", []), ini=ini_mes)
-    pgto_ts = C.pagamentos_por_atleta(T.get("PixCobrancas", []), ini=ini_mes)
-    hoje_mes = f"{MESES[hoje.month - 1]} {hoje.year}"
-    out = {}
-    for r in T.get("Pagamentos", []):
-        if str(r.get("mes", "")).strip().upper() != hoje_mes:
-            continue
-        nome = str(r.get("atleta", "")).strip().upper()
-        if not cons_ts.get(nome):
-            continue
-        # conta-corrente: o pagamento abate o boteco primeiro, mas só o consumo que já
-        # existia quando o dinheiro entrou (ver conta.py)
-        aberto = C.extrato(r, cons_ts[nome], pgto_ts.get(nome, []), ini_mes)["boteco_aberto"]
-        if aberto > 0:
-            out[nome.title()] = aberto
-    return out
+    return {nome.title(): e["boteco_aberto"]
+            for nome, e in extratos_do_mes(T).items() if e["boteco_aberto"] > 0}
 
 
 def roster_ativos(T):

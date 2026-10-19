@@ -640,7 +640,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div id="bt-lista"></div>
     <h3 style="margin-top:22px;font-size:1rem">🧾 Quem ainda deve o boteco</h3>
-    <table><thead><tr><th>Atleta</th><th>O que consumiu</th><th class="num">Em aberto</th></tr></thead>
+    <table><thead><tr><th>Atleta</th><th>O que falta pagar</th><th class="num">Em aberto</th></tr></thead>
       <tbody id="bt-extrato"></tbody></table>
     <div id="bt-pagos" style="font-size:.75rem;color:#777;margin-top:8px"></div>
     <div class="bt-bar">

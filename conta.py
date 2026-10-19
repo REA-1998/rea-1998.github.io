@@ -63,7 +63,7 @@ def consumos_por_atleta(rows, ini=None, fim=None):
         d = _quando_consumo(c)
         if d is None or (ini and d.date() < ini) or (fim and d.date() > fim):
             continue
-        out.setdefault(str(c.get("atleta", "")).strip().upper(), []).append((d, nf(c.get("total"))))
+        out.setdefault(str(c.get("atleta", "")).strip().upper(), []).append((d, nf(c.get("total")), c))
     for v in out.values():
         v.sort(key=lambda x: x[0])
     return out
@@ -122,11 +122,12 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
         pgs = [p for p in pgs if p[1] > 0.009]
 
     # linha do tempo: no empate, o consumo entra antes (o pagamento daquele instante o cobre)
-    eventos = [(d, 0, v) for d, v in cons] + [(d, 1, v) for d, v in pgs]
+    eventos = ([(c[0], 0, c[1], c[2] if len(c) > 2 else None) for c in cons]
+               + [(p[0], 1, p[1], None) for p in pgs])
     eventos.sort(key=lambda e: (e[0], e[1]))
 
-    fila, credito = [], 0.0   # fila = consumo ainda em aberto, mais antigo primeiro
-    for _, tipo, v in eventos:
+    fila, credito = [], 0.0   # fila = [restante, item, valor cheio], mais antigo primeiro
+    for _, tipo, v, item in eventos:
         if tipo == 0:
             rest = v
             if credito > 0:                       # sobra de pagamento anterior cobre o novo consumo
@@ -134,16 +135,16 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
                 credito -= ab
                 rest -= ab
             if rest > 0.009:
-                fila.append(rest)
+                fila.append([rest, item, v])
         else:
             sobra = v
-            for i, pend in enumerate(fila):       # 1º boteco
+            for pend in fila:                     # 1º boteco
                 if sobra <= 0:
                     break
-                ab = min(sobra, pend)
-                fila[i] = pend - ab
+                ab = min(sobra, pend[0])
+                pend[0] -= ab
                 sobra -= ab
-            fila = [p for p in fila if p > 0.009]
+            fila = [p for p in fila if p[0] > 0.009]
             ab = min(sobra, sa)                   # 2º dívida antiga
             sa -= ab
             sobra -= ab
@@ -152,12 +153,37 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
             credito += sobra - ab
 
     sa_ab, fixo_ab = round(sa, 2), round(sa + outros, 2)
-    bot_ab = round(sum(fila), 2)
+    bot_ab = round(sum(p[0] for p in fila), 2)
     total = round(nf(reg.get("s_a")) + nf(reg.get("mensalidade")) + nf(reg.get("multa_chu"))
                   + consumo_total, 2)
     return {"sa_aberto": sa_ab, "fixo_aberto": fixo_ab, "boteco_aberto": bot_ab,
             "credito": round(credito, 2), "total": total, "pago": round(pago, 2),
-            "consumo": round(consumo_total, 2), "saldo": round(fixo_ab + bot_ab, 2)}
+            "consumo": round(consumo_total, 2), "saldo": round(fixo_ab + bot_ab, 2),
+            "boteco_itens": _itens_em_aberto(fila)}
+
+
+def _itens_em_aberto(fila):
+    """Agrupa por produto o consumo que AINDA não foi pago - e não o mês inteiro, senão a
+    lista do site mostra também o que a pessoa já acertou.
+
+    Se um lançamento foi pago pela metade, a quantidade entra proporcional ao que falta;
+    o valor em aberto continua sendo a fonte da verdade."""
+    por = {}
+    for rest, item, cheio in fila:
+        if not item:
+            continue
+        nome = str(item.get("produto", "")).strip()
+        frac = (rest / cheio) if cheio else 1.0
+        q, v = por.get(nome, (0.0, 0.0))
+        por[nome] = (q + nf(item.get("qtd")) * frac, v + rest)
+    itens = []
+    for nome, (q, v) in por.items():
+        qtd = int(round(q))
+        itens.append({"produto": nome, "qtd": max(1, qtd) if v > 0.009 else qtd,
+                      "valor": round(v, 2)})
+    itens.sort(key=lambda x: -x["valor"])
+    return itens
+
 
 
 def situacao(reg, ext):
