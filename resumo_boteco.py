@@ -137,10 +137,36 @@ def montar(sh):
     if zerado:
         L.append("❌ Zerados: " + ", ".join(zerado))
     L.append(f"\n💵 Em estoque: custo R$ {custo_estq:.2f} · venda R$ {venda_estq:.2f}")
+    L.append("")
+    L.append(confere_estoque(sh, prods, cons))
     L.append("\n🌐 https://racharea.com.br (aba 🍺 Boteco)")
     L.append("<i>Para corrigir um lançamento: mande \"desfazer NOME\" aqui.</i>")
     return "\n".join(L)
 
+
+def confere_estoque(sh, prods, cons):
+    """Fecha a conta do estoque: tudo que entrou menos tudo que saiu tem que dar o que está
+    na prateleira. Se não der, alguém deu entrada errada ou mexeu no estoque na mão."""
+    try:
+        entradas = sh.worksheet("BarEntradas").get_all_records()
+    except Exception:
+        return "⚠️ Sem a aba BarEntradas — não dá para conferir o estoque."
+    ent = collections.defaultdict(int)
+    for e in entradas:
+        ent[str(e.get("produto", "")).strip()] += int(nf(e.get("qtd")))
+    saiu = collections.defaultdict(int)
+    for c in cons:
+        saiu[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
+    ruins = []
+    for p in prods:
+        nome = str(p.get("produto", "")).strip()
+        est = int(nf(p.get("estoque")))
+        calc = ent.get(nome, 0) - saiu.get(nome, 0)
+        if calc != est:
+            ruins.append(f"• {nome}: a conta dá {calc}, na prateleira {est}")
+    if not ruins:
+        return "✅ Estoque confere: entrou − vendeu = o que tem, item por item."
+    return "\n".join(["🚨 <b>Estoque não fecha</b> (entrou − vendeu ≠ estoque)"] + ruins)
 
 def enviar(texto):
     for chat in DESTINOS:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Mantem as cobrancas Pix iguais a divida de cada atleta (Racha REA)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=racha
+WorkingDirectory=/opt/racha/app
+EnvironmentFile=/opt/racha/app/.env
+ExecStart=/opt/racha/venv/bin/python reconciliar_cobrancas.py
