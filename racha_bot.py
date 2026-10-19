@@ -28,6 +28,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 import anthropic
 import gspread
+from gspread.utils import rowcol_to_a1
 import requests
 import montar_times as M
 from google.oauth2.service_account import Credentials
