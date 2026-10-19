@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.utils import rowcol_to_a1
+import conta as C  # conta-corrente do atleta (fonte unica da matematica)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE, ".env"))
@@ -63,15 +64,37 @@ def _efi():
 TETO_CONSUMO = float(os.environ.get("BAR_TETO", "100"))
 
 
+_CACHE = {}          # aba -> (momento, linhas) — segura a cota do Google no sábado
+
+
+def _aba(sh, nome, seg=45):
+    """Lê a aba com cache curto: no sábado dezenas de atletas confirmam presença ao mesmo
+    tempo e cada checagem lia a planilha inteira três vezes."""
+    agora = datetime.datetime.now()
+    hit = _CACHE.get(nome)
+    if hit and (agora - hit[0]).total_seconds() < seg:
+        return hit[1]
+    linhas = sh.worksheet(nome).get_all_records()
+    _CACHE[nome] = (agora, linhas)
+    return linhas
+
+
 def _consumo_aberto(sh, atleta, mes):
     """Quanto o atleta tem de consumo ainda não pago no mês.
-    O pagamento abate PRIMEIRO o boteco (dívida de curto prazo, que trava a presença);
-    o que sobrar vai para mensalidade/multa/saldo antigo."""
-    for r in sh.worksheet("Pagamentos").get_all_records():
-        if (str(r.get("mes", "")).strip().upper() == mes.upper()
-                and str(r.get("atleta", "")).strip().upper() == atleta.upper()):
-            return max(0.0, round(_nf(r.get("consumo")) - _nf(r.get("valor_pago")), 2))
-    return 0.0
+
+    Conta-corrente (conta.py): o pagamento abate PRIMEIRO o boteco, mas só o consumo que
+    JÁ EXISTIA quando o dinheiro entrou. Quem pagou de manhã e bebeu à noite continua
+    devendo a bebida — e por isso trava a presença."""
+    alvo = atleta.strip().upper()
+    reg = next((r for r in _aba(sh, "Pagamentos")
+                if str(r.get("mes", "")).strip().upper() == mes.upper()
+                and str(r.get("atleta", "")).strip().upper() == alvo), None)
+    if reg is None:
+        return 0.0
+    ini = datetime.date.today().replace(day=1)
+    cons = C.consumos_por_atleta(_aba(sh, "BarConsumo"), ini=ini).get(alvo, [])
+    pgs = C.pagamentos_por_atleta(_aba(sh, "PixCobrancas"), ini=ini).get(alvo, [])
+    return C.extrato(reg, cons, pgs, ini)["boteco_aberto"]
 
 
 def _somar_consumo_na_conta(sh, atleta, mes, valor):
@@ -182,6 +205,7 @@ def registrar_pagamento(sh, txid, valor, horario, e2eid):
         row[gi("data_pgto")] = data_pgto; row[gi("obs")] = "Pix auto (Efi)"
         pg.append_row(row, value_input_option="RAW")
         saldo = round(90.0 - val, 2)
+    _CACHE.clear()   # pagamento conciliado muda a conta
     # pagamento parcial -> emite automaticamente um novo QR com o que falta
     if saldo > 0.009:
         try:
@@ -270,6 +294,7 @@ def make_app():
                             "erro": f"limite de R$ {TETO_CONSUMO:.0f} atingido "
                                     f"(você já tem R$ {aberto:.2f} em aberto). Acerte antes de consumir mais."}), 409
         sh.worksheet("BarConsumo").append_rows(novos, value_input_option="RAW")
+        _CACHE.clear()   # o consumo que acabou de entrar já tem que travar a presença
         pw_.batch_update(ups_estoque, value_input_option="RAW")
         _somar_consumo_na_conta(sh, atleta, mes, total)
         return jsonify({"ok": True, "total": f"{total:.2f}",

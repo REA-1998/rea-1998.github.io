@@ -18,6 +18,8 @@ import gspread
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 
+import conta as C  # conta-corrente do atleta (fonte unica da matematica)
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE, ".env"))
 
@@ -73,19 +75,18 @@ def montar(sh):
     zerado = [str(p["produto"]) for p in prods if nf(p["estoque"]) <= 0]
 
     mes = f"{MESES[hoje.month - 1]} {hoje.year}"
+    cons_ts = C.consumos_por_atleta(cons, ini=ini_mes)
+    pgto_ts = C.pagamentos_por_atleta(sh.worksheet("PixCobrancas").get_all_records(), ini=ini_mes)
     devendo = []
     for p in sh.worksheet("Pagamentos").get_all_records():
         if str(p.get("mes", "")).strip().upper() != mes:
             continue
-        nome = str(p.get("atleta", "")).strip().title()
-        consumo = nf(p.get("consumo"))
-        if consumo <= 0:
+        alvo = str(p.get("atleta", "")).strip().upper()
+        if not cons_ts.get(alvo):
             continue
-        fixos = nf(p.get("s_a")) + nf(p.get("mensalidade")) + nf(p.get("multa_chu"))
-        sobra = max(0.0, nf(p.get("valor_pago")) - fixos)
-        aberto = round(max(0.0, consumo - sobra), 2)
+        aberto = C.extrato(p, cons_ts[alvo], pgto_ts.get(alvo, []), ini_mes)["boteco_aberto"]
         if aberto > 0:
-            devendo.append((nome, aberto))
+            devendo.append((alvo.title(), aberto))
     devendo.sort(key=lambda x: -x[1])
 
     L = [f"🍺 <b>Boteco do REA</b> — {hoje.strftime('%d/%m/%Y')}", ""]

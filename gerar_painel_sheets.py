@@ -27,6 +27,7 @@ try:
 except ImportError:
     pass
 
+import conta as C  # conta-corrente do atleta (fonte unica da matematica)
 import gerar_painel as G  # TEMPLATE, logo_html, dados_pix, constantes (só import, sem I/O)
 
 SA_JSON = os.environ.get("GOOGLE_SA_JSON", "")
@@ -345,6 +346,9 @@ def dados_financeiro(T):
             isentos.add(nome)
     pag = {str(r["atleta"]).strip().upper(): r
            for r in T["Pagamentos"] if str(r["mes"]).strip().upper() == mes}
+    ini_mes = hoje.replace(day=1)
+    cons_ts = C.consumos_por_atleta(T.get("BarConsumo", []), ini=ini_mes)
+    pgto_ts = C.pagamentos_por_atleta(T.get("PixCobrancas", []), ini=ini_mes)
     linhas = []
     for nome in ativos:
         if nome in isentos:
@@ -354,21 +358,10 @@ def dados_financeiro(T):
         r = pag.get(nome)
         if not r:
             continue
-        sa, mens = nf(r["s_a"]), nf(r["mensalidade"])
-        multa, pago = nf(r["multa_chu"]), nf(r["valor_pago"])
-        consumo = nf(r.get("consumo"))   # boteco entra na conta
-        total = sa + mens + multa + consumo
-        saldo = total - pago
-        # ORDEM DE ABATIMENTO (regra do Mateus): o pagamento abate PRIMEIRO o boteco,
-        # depois a dívida antiga, depois mensalidade/multa.
-        # Atrasado = virou o mês devendo MENSALIDADE (s_a >= 90) e ainda não quitou essa
-        # dívida antiga. Multa pequena antiga (s_a < 90) não rebaixa ninguém.
-        sobra_apos_boteco = max(0.0, pago - consumo)
-        resto = max(0.0, sa - sobra_apos_boteco)
-        sit = ("Isento" if total == 0 and saldo == 0 else "Em dia" if saldo <= 0
-               else "Atrasado" if (sa >= 90 and resto > 0) else "Mês em aberto")
-        linhas.append({"nome": nome.title(), "total": round(total, 2),
-                       "pago": round(pago, 2), "saldo": round(saldo, 2), "situacao": sit})
+        ext = C.extrato(r, cons_ts.get(nome, []), pgto_ts.get(nome, []), ini_mes)
+        linhas.append({"nome": nome.title(), "total": ext["total"], "pago": ext["pago"],
+                       "saldo": round(ext["total"] - ext["pago"], 2),
+                       "situacao": C.situacao(r, ext)})
     ordem = {"Atrasado": 0, "Mês em aberto": 1, "Em dia": 2, "Isento": 3}
     linhas.sort(key=lambda x: (ordem[x["situacao"]], x["nome"]))
     return linhas
@@ -405,24 +398,20 @@ def consumo_em_aberto(T):
     """{Nome: valor} de QUALQUER consumo do boteco ainda não pago — inclusive o do próprio
     dia (ninguém confirma presença durante o racha, então travar no dia é o certo)."""
     hoje = datetime.date.today()
-    por_atleta = {}
-    for c in T.get("BarConsumo", []):
-        if data_iso(c.get("data")) is None:
-            continue
-        nome = str(c.get("atleta", "")).strip().upper()
-        por_atleta[nome] = por_atleta.get(nome, 0.0) + nf(c.get("total"))
+    ini_mes = hoje.replace(day=1)
+    cons_ts = C.consumos_por_atleta(T.get("BarConsumo", []), ini=ini_mes)
+    pgto_ts = C.pagamentos_por_atleta(T.get("PixCobrancas", []), ini=ini_mes)
     hoje_mes = f"{MESES[hoje.month - 1]} {hoje.year}"
     out = {}
     for r in T.get("Pagamentos", []):
         if str(r.get("mes", "")).strip().upper() != hoje_mes:
             continue
         nome = str(r.get("atleta", "")).strip().upper()
-        antigo = por_atleta.get(nome, 0.0)
-        if antigo <= 0:
+        if not cons_ts.get(nome):
             continue
-        # o pagamento abate PRIMEIRO o boteco (dívida de curto prazo, que trava a presença);
-        # o que sobrar vai para mensalidade/multa/saldo antigo
-        aberto = round(min(antigo, max(0.0, nf(r.get("consumo")) - nf(r.get("valor_pago")))), 2)
+        # conta-corrente: o pagamento abate o boteco primeiro, mas só o consumo que já
+        # existia quando o dinheiro entrou (ver conta.py)
+        aberto = C.extrato(r, cons_ts[nome], pgto_ts.get(nome, []), ini_mes)["boteco_aberto"]
         if aberto > 0:
             out[nome.title()] = aberto
     return out
