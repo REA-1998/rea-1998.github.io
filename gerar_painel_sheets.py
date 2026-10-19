@@ -384,11 +384,12 @@ def dados_boteco(T):
         por[nome] = por.get(nome, 0.0) + nf(c.get("total"))
     ext = extratos_do_mes(T)
     lista = []
-    for nome in sorted(por, key=lambda n: -por[n]):
+    for nome in por:
         e = ext.get(nome.upper())
         lista.append({"nome": nome, "total": round(por[nome], 2),
                       "aberto": round(e["boteco_aberto"], 2) if e else 0.0,
                       "itens": (e or {}).get("boteco_itens", [])})
+    lista.sort(key=lambda a: (-a["aberto"], -a["total"]))   # quem deve mais primeiro
     return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
             "total": round(sum(por.values()), 2), "atletas": lista}
 
