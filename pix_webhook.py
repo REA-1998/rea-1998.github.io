@@ -65,6 +65,17 @@ TETO_CONSUMO = float(os.environ.get("BAR_TETO", "100"))
 
 
 _CACHE = {}          # aba -> (momento, linhas) — segura a cota do Google no sábado
+_WS = {}             # aba -> objeto gspread
+
+
+def _ws(sh, nome):
+    """O gspread busca os metadados da planilha a cada _ws(sh, ), e isso conta na cota
+    de leitura. No sábado, com todo mundo lançando junto, era o que estourava o limite."""
+    w = _WS.get(nome)
+    if w is None:
+        w = sh.worksheet(nome)
+        _WS[nome] = w
+    return w
 
 
 def _aba(sh, nome, seg=45):
@@ -74,7 +85,7 @@ def _aba(sh, nome, seg=45):
     hit = _CACHE.get(nome)
     if hit and (agora - hit[0]).total_seconds() < seg:
         return hit[1]
-    linhas = sh.worksheet(nome).get_all_records()
+    linhas = _ws(sh, nome).get_all_records()
     _CACHE[nome] = (agora, linhas)
     return linhas
 
@@ -104,7 +115,7 @@ def _consumo_aberto(sh, atleta, mes):
 
 def _somar_consumo_na_conta(sh, atleta, mes, valor):
     """Soma o consumo na linha do mês (cria a linha se não existir)."""
-    pg = sh.worksheet("Pagamentos")
+    pg = _ws(sh, "Pagamentos")
     gv = pg.get_all_values(); gh = gv[0]
     def gi(n): return _ci(gh, n)
     for i, r in enumerate(gv[1:], start=2):
@@ -116,7 +127,7 @@ def _somar_consumo_na_conta(sh, atleta, mes, valor):
             return novo
     isento = any(str(a.get("nome", "")).strip().upper() == atleta.upper()
                  and str(a.get("isento_mensalidade", "")).strip().lower() == "sim"
-                 for a in sh.worksheet("Atletas").get_all_records())
+                 for a in _ws(sh, "Atletas").get_all_records())
     row = [""] * len(gh)
     row[gi("mes")] = mes; row[gi("atleta")] = atleta
     row[gi("mensalidade")] = "0" if isento else "90"
@@ -158,7 +169,7 @@ def nova_cobranca_saldo(sh, atleta, mes, saldo):
         qr = efi.pix_generate_qrcode(params={"id": resp["loc"]["id"]})
         copia = qr.get("qrcode", "") if isinstance(qr, dict) else ""
     agora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sh.worksheet("PixCobrancas").append_row(
+    _ws(sh, "PixCobrancas").append_row(
         [mes, atleta, txid, f"{saldo:.2f}", "ATIVA", str(resp["loc"]["id"]),
          resp.get("location", ""), copia, agora, "", ""], value_input_option="RAW")
     print(f"Nova cobranca de saldo: {atleta} {mes} R$ {saldo:.2f}")
@@ -167,7 +178,7 @@ def nova_cobranca_saldo(sh, atleta, mes, saldo):
 
 def registrar_pagamento(sh, txid, valor, horario, e2eid):
     """Casa o txid com o atleta/mês e grava o pagamento. Retorna um resumo (dict)."""
-    pix_ws = sh.worksheet("PixCobrancas")
+    pix_ws = _ws(sh, "PixCobrancas")
     pv = pix_ws.get_all_values(); ph = pv[0]
     linha = atleta = mes = None
     for i, r in enumerate(pv[1:], start=2):
@@ -184,7 +195,7 @@ def registrar_pagamento(sh, txid, valor, horario, e2eid):
     pix_ws.update(values=[[e2eid or ""]], range_name=rowcol_to_a1(linha, _ci(ph, "e2eid")+1), value_input_option="RAW")
 
     # 2) lanca em Pagamentos (upsert por mes+atleta)
-    pg = sh.worksheet("Pagamentos")
+    pg = _ws(sh, "Pagamentos")
     gv = pg.get_all_values(); gh = gv[0]
     def gi(n): return _ci(gh, n)
     alvo = None
@@ -238,6 +249,18 @@ def processar_payload(sh, data):
 def make_app():
     from flask import Flask, request, jsonify
     app = Flask(__name__)
+
+    @app.errorhandler(gspread.exceptions.APIError)
+    def _sheets_fora(e):
+        """Cota do Google estourada (muita gente lançando junto) não pode virar erro 500
+        na cara do atleta — ele precisa saber que é só tentar de novo."""
+        txt = str(e)
+        if "429" in txt or "Quota" in txt:
+            return jsonify({"ok": False, "erro": "muita gente lançando ao mesmo tempo. "
+                                                 "Espere uns 30 segundos e tente de novo."}), 503
+        print("Erro do Sheets:", txt[:300])
+        return jsonify({"ok": False, "erro": "a planilha não respondeu agora. "
+                                             "Tente de novo em instantes."}), 503
     sh = sheets()
 
     @app.get("/pix-racha/health")
@@ -250,7 +273,7 @@ def make_app():
         itens = [{"produto": str(p.get("produto", "")), "categoria": str(p.get("categoria", "")),
                   "preco": _nf(p.get("preco")), "estoque": int(_nf(p.get("estoque"))),
                   "controla": _controla_estoque(p)}
-                 for p in sh.worksheet("BarProdutos").get_all_records()
+                 for p in _ws(sh, "BarProdutos").get_all_records()
                  if str(p.get("ativo", "")).strip().lower() == "sim"]
         return jsonify({"ok": True, "itens": itens})
 
@@ -264,11 +287,11 @@ def make_app():
         if not atleta or not pedidos:
             return jsonify({"ok": False, "erro": "informe atleta e itens"}), 400
         atletas = {str(a.get("nome", "")).strip().upper(): a
-                   for a in sh.worksheet("Atletas").get_all_records()
+                   for a in _aba(sh, "Atletas", 300)
                    if str(a.get("ativo", "")).strip().lower() == "sim"}
         if atleta not in atletas:
             return jsonify({"ok": False, "erro": "atleta não encontrado"}), 404
-        pw_ = sh.worksheet("BarProdutos")
+        pw_ = _ws(sh, "BarProdutos")
         prods = pw_.get_all_values()
         phdr = prods[0]
         pi = {n: phdr.index(n) for n in ("produto", "preco", "estoque")}
@@ -304,8 +327,9 @@ def make_app():
             return jsonify({"ok": False,
                             "erro": f"limite de R$ {TETO_CONSUMO:.0f} atingido "
                                     f"(você já tem R$ {aberto:.2f} em aberto). Acerte antes de consumir mais."}), 409
-        sh.worksheet("BarConsumo").append_rows(novos, value_input_option="RAW")
-        _CACHE.clear()   # o consumo que acabou de entrar já tem que travar a presença
+        _ws(sh, "BarConsumo").append_rows(novos, value_input_option="RAW")
+        for aba in ("BarConsumo", "Pagamentos"):   # só o que o lançamento mexeu;
+            _CACHE.pop(aba, None)                  # recarregar tudo estourava a cota
         if ups_estoque:
             pw_.batch_update(ups_estoque, value_input_option="RAW")
         _somar_consumo_na_conta(sh, atleta, mes, total)
@@ -322,7 +346,7 @@ def make_app():
         if not atleta or valor < 1 or valor > 5000:
             return jsonify({"ok": False, "erro": "informe atleta e um valor entre R$1 e R$5.000"}), 400
         # só aceita atleta ativo do cadastro
-        nomes = {str(a.get("nome", "")).strip().upper() for a in sh.worksheet("Atletas").get_all_records()
+        nomes = {str(a.get("nome", "")).strip().upper() for a in _ws(sh, "Atletas").get_all_records()
                  if str(a.get("ativo", "")).strip().lower() == "sim"}
         if atleta.upper() not in nomes:
             return jsonify({"ok": False, "erro": "atleta não encontrado"}), 404
@@ -334,7 +358,7 @@ def make_app():
             return jsonify({"ok": False, "erro": "falha ao gerar"}), 500
         if not txid:
             return jsonify({"ok": False, "erro": "falha ao gerar"}), 500
-        xv = sh.worksheet("PixCobrancas").get_all_values(); xh = xv[0]
+        xv = _ws(sh, "PixCobrancas").get_all_values(); xh = xv[0]
         for r in reversed(xv[1:]):
             if r[_ci(xh, "txid")].strip() == txid:
                 return jsonify({"ok": True, "copia": r[_ci(xh, "pix_copia_cola")],
