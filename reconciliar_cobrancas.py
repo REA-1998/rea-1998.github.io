@@ -43,7 +43,7 @@ def sheets():
     return gspread.authorize(creds).open_by_key(os.environ["SHEET_ID"])
 
 
-def ajustar_consumo(sh, mes, ini_mes):
+def ajustar_consumo(sh, mes, ini_mes, dry=False):
     """Recalcula a coluna `consumo` de Pagamentos a partir do BarConsumo.
 
     Lançar no boteco escreve em três lugares (BarConsumo, estoque e a conta do atleta) e
@@ -72,7 +72,7 @@ def ajustar_consumo(sh, mes, ini_mes):
         if abs(atual - certo) > 0.005:
             ups.append({"range": rowcol_to_a1(i, cc), "values": [[f"{certo:.2f}"]]})
             mudou.append((nome, atual, certo))
-    if ups:
+    if ups and not dry:
         pg.batch_update(ups, value_input_option="RAW")
     for nome, v in por.items():
         if nome not in vistos and v > 0:
@@ -158,7 +158,7 @@ def main():
     hoje = datetime.date.today()
     mes, ini_mes = _mes(), hoje.replace(day=1)
     sh = sheets()
-    for nome, antes, agora in ajustar_consumo(sh, mes, ini_mes):
+    for nome, antes, agora in ajustar_consumo(sh, mes, ini_mes, dry):
         print(f"[consumo] {nome}: {antes:.2f} -> {agora:.2f} (recalculado do BarConsumo)")
     pc, cancelar, criar = planejar(sh, mes, ini_mes)
     if not cancelar and not criar:
