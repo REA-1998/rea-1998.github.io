@@ -43,6 +43,43 @@ def sheets():
     return gspread.authorize(creds).open_by_key(os.environ["SHEET_ID"])
 
 
+def ajustar_consumo(sh, mes, ini_mes):
+    """Recalcula a coluna `consumo` de Pagamentos a partir do BarConsumo.
+
+    Lançar no boteco escreve em três lugares (BarConsumo, estoque e a conta do atleta) e
+    isso não é atômico: se a cota do Google estourar no meio, fica lançamento registrado
+    sem cobrança — aconteceu em 21/10/2026. Como o BarConsumo é a fonte da verdade, basta
+    recalcular; o conserto vem sozinho na próxima passada, em no máximo 15 minutos.
+    """
+    por = {}
+    for c in sh.worksheet("BarConsumo").get_all_records():
+        d = C.ts(c.get("data"))
+        if d is None or d.date() < ini_mes:
+            continue
+        nome = str(c.get("atleta", "")).strip().upper()
+        por[nome] = round(por.get(nome, 0.0) + C.nf(c.get("total")), 2)
+
+    pg = sh.worksheet("Pagamentos")
+    cc = pg.row_values(1).index("consumo") + 1
+    ups, mudou, vistos = [], [], set()
+    for i, r in enumerate(pg.get_all_records(), start=2):
+        if str(r.get("mes", "")).strip().upper() != mes:
+            continue
+        nome = str(r.get("atleta", "")).strip().upper()
+        vistos.add(nome)
+        certo = por.get(nome, 0.0)
+        atual = C.nf(r.get("consumo"))
+        if abs(atual - certo) > 0.005:
+            ups.append({"range": rowcol_to_a1(i, cc), "values": [[f"{certo:.2f}"]]})
+            mudou.append((nome, atual, certo))
+    if ups:
+        pg.batch_update(ups, value_input_option="RAW")
+    for nome, v in por.items():
+        if nome not in vistos and v > 0:
+            print(f"  ATENCAO: {nome} tem R$ {v:.2f} de consumo e nenhuma linha em {mes}")
+    return mudou
+
+
 def planejar(sh, mes, ini_mes):
     """Devolve (cancelar, criar) sem tocar em nada."""
     pc = sh.worksheet("PixCobrancas")
@@ -121,6 +158,8 @@ def main():
     hoje = datetime.date.today()
     mes, ini_mes = _mes(), hoje.replace(day=1)
     sh = sheets()
+    for nome, antes, agora in ajustar_consumo(sh, mes, ini_mes):
+        print(f"[consumo] {nome}: {antes:.2f} -> {agora:.2f} (recalculado do BarConsumo)")
     pc, cancelar, criar = planejar(sh, mes, ini_mes)
     if not cancelar and not criar:
         print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] cobrancas de {mes}: tudo certo")
