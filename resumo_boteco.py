@@ -71,9 +71,10 @@ def montar(sh):
     com_est = [p for p in prods if com_estoque(p)]
     custo_estq = sum(nf(p["custo"]) * nf(p["estoque"]) for p in com_est)
     venda_estq = sum(nf(p["preco"]) * nf(p["estoque"]) for p in com_est)
-    baixo = [(str(p["produto"]), int(nf(p["estoque"]))) for p in com_est
+    repor = [p for p in com_est if not e_contagem(p)]   # resenha nao se "repoe"
+    baixo = [(str(p["produto"]), int(nf(p["estoque"]))) for p in repor
              if 0 < nf(p["estoque"]) <= ESTOQUE_BAIXO]
-    zerado = [str(p["produto"]) for p in com_est if nf(p["estoque"]) <= 0]
+    zerado = [str(p["produto"]) for p in repor if nf(p["estoque"]) <= 0]
 
     mes = f"{MESES[hoje.month - 1]} {hoje.year}"
     cons_ts = C.consumos_por_atleta(cons, ini=ini_mes)
@@ -134,6 +135,9 @@ def montar(sh):
             vend = saiu_sem.get(nome, 0)
             if est == 0 and vend == 0:
                 continue
+            if e_contagem(p):     # resenha: "faltou lancar X, lancaram Y"
+                partes.append(f"{nome} <b>{est}</b> sem lançar({vend} lançaram)")
+                continue
             marca = " ⚠️" if 0 < est <= ESTOQUE_BAIXO else ("❌" if est <= 0 else "")
             partes.append(f"{nome} <b>{est}</b>({vend}){marca}")
         if partes:
@@ -167,8 +171,15 @@ def confere_precos(prods):
 
 
 def com_estoque(p):
-    """Produto de prateleira. Resenha é serviço: marcada com controla_estoque=nao."""
+    """Produto que tem contagem de estoque. 'nao' = serviço puro, fica fora de tudo."""
     return str(p.get("controla_estoque", "sim")).strip().lower() not in ("nao", "não", "n")
+
+
+def e_contagem(p):
+    """controla_estoque='contagem': o estoque é uma contagem de cabeças (resenha), não uma
+    prateleira. Conta e trava normalmente, mas acabar não é motivo de alerta de compra —
+    pelo contrário, significa que todo mundo que ficou lançou o nome."""
+    return str(p.get("controla_estoque", "sim")).strip().lower() == "contagem"
 
 
 def confere_estoque(sh, prods, cons):
