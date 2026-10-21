@@ -25,7 +25,8 @@ from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
 # padrão por categoria, usado quando a linha não tem margem própria
-MARGEM_PADRAO = {"Cerveja": 0.15, "Refri": 0.15, "Bebida": 0.15, "Salgado": 0.40}
+MARGEM_PADRAO = {"Cerveja": 0.15, "Refri": 0.15, "Bebida": 0.15, "Salgado": 0.40,
+                 "Resenha": 0.0}   # resenha e rateio de custo, nao tem margem
 PADRAO_GERAL = 0.15
 
 
@@ -38,11 +39,12 @@ def nf(x):
 
 def margem_de(linha):
     """Margem do produto: a da planilha se estiver preenchida, senão a da categoria."""
-    m = nf(linha.get("margem"))
-    if m > 1:          # alguém digitou "15" em vez de 0,15
-        m = m / 100.0
-    if m > 0:
-        return m
+    bruto = str(linha.get("margem", "")).strip()
+    if bruto:                      # preenchido vale, inclusive 0 (resenha vai a preço de custo)
+        m = nf(bruto)
+        if m > 1:                  # alguém digitou "15" em vez de 0,15
+            m = m / 100.0
+        return max(0.0, m)
     return MARGEM_PADRAO.get(str(linha.get("categoria", "")).strip(), PADRAO_GERAL)
 
 

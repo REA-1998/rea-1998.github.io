@@ -79,6 +79,11 @@ def _aba(sh, nome, seg=45):
     return linhas
 
 
+def _controla_estoque(p):
+    """Produto de serviço (resenha) não tem prateleira: marcado com controla_estoque=nao."""
+    return str(p.get("controla_estoque", "sim")).strip().lower() not in ("nao", "não", "n")
+
+
 def _consumo_aberto(sh, atleta, mes):
     """Quanto o atleta tem de consumo ainda não pago no mês.
 
@@ -243,7 +248,8 @@ def make_app():
     def bar_produtos():
         """Catálogo com estoque, para a tela do boteco."""
         itens = [{"produto": str(p.get("produto", "")), "categoria": str(p.get("categoria", "")),
-                  "preco": _nf(p.get("preco")), "estoque": int(_nf(p.get("estoque")))}
+                  "preco": _nf(p.get("preco")), "estoque": int(_nf(p.get("estoque"))),
+                  "controla": _controla_estoque(p)}
                  for p in sh.worksheet("BarProdutos").get_all_records()
                  if str(p.get("ativo", "")).strip().lower() == "sim"]
         return jsonify({"ok": True, "itens": itens})
@@ -266,6 +272,7 @@ def make_app():
         prods = pw_.get_all_values()
         phdr = prods[0]
         pi = {n: phdr.index(n) for n in ("produto", "preco", "estoque")}
+        ic = phdr.index("controla_estoque") if "controla_estoque" in phdr else None
         linha_de = {r[pi["produto"]].strip().lower(): (i, r) for i, r in enumerate(prods[1:], start=2)}
         mes = _mes_atual()
         hoje = datetime.date.today().isoformat()
@@ -279,12 +286,16 @@ def make_app():
             i, r = linha_de[nome]
             preco = _nf(r[pi["preco"]])
             est = int(_nf(r[pi["estoque"]]))
-            if qtd > est:
+            # itens de serviço (resenha) não têm estoque: não trancam nem baixam prateleira
+            controla = not (ic is not None and str(r[ic]).strip().lower() in ("nao", "não", "n"))
+            if controla and qtd > est:
                 return jsonify({"ok": False, "erro": f"só restam {est} de {r[pi['produto']]}"}), 409
             sub = round(preco * qtd, 2)
             total += sub
             novos.append([hoje, atleta, r[pi["produto"]], qtd, f"{preco:.2f}", f"{sub:.2f}", agora])
-            ups_estoque.append({"range": rowcol_to_a1(i, pi["estoque"] + 1), "values": [[est - qtd]]})
+            if controla:
+                ups_estoque.append({"range": rowcol_to_a1(i, pi["estoque"] + 1),
+                                    "values": [[est - qtd]]})
         if not novos:
             return jsonify({"ok": False, "erro": "nenhum item válido"}), 400
         # trava: teto de consumo em aberto
@@ -295,7 +306,8 @@ def make_app():
                                     f"(você já tem R$ {aberto:.2f} em aberto). Acerte antes de consumir mais."}), 409
         sh.worksheet("BarConsumo").append_rows(novos, value_input_option="RAW")
         _CACHE.clear()   # o consumo que acabou de entrar já tem que travar a presença
-        pw_.batch_update(ups_estoque, value_input_option="RAW")
+        if ups_estoque:
+            pw_.batch_update(ups_estoque, value_input_option="RAW")
         _somar_consumo_na_conta(sh, atleta, mes, total)
         return jsonify({"ok": True, "total": f"{total:.2f}",
                         "em_aberto": f"{aberto + total:.2f}", "itens": len(novos)})

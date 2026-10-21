@@ -68,11 +68,12 @@ def montar(sh):
             sem_tot += v
 
     prods = sh.worksheet("BarProdutos").get_all_records()
-    custo_estq = sum(nf(p["custo"]) * nf(p["estoque"]) for p in prods)
-    venda_estq = sum(nf(p["preco"]) * nf(p["estoque"]) for p in prods)
-    baixo = [(str(p["produto"]), int(nf(p["estoque"]))) for p in prods
+    com_est = [p for p in prods if com_estoque(p)]
+    custo_estq = sum(nf(p["custo"]) * nf(p["estoque"]) for p in com_est)
+    venda_estq = sum(nf(p["preco"]) * nf(p["estoque"]) for p in com_est)
+    baixo = [(str(p["produto"]), int(nf(p["estoque"]))) for p in com_est
              if 0 < nf(p["estoque"]) <= ESTOQUE_BAIXO]
-    zerado = [str(p["produto"]) for p in prods if nf(p["estoque"]) <= 0]
+    zerado = [str(p["produto"]) for p in com_est if nf(p["estoque"]) <= 0]
 
     mes = f"{MESES[hoje.month - 1]} {hoje.year}"
     cons_ts = C.consumos_por_atleta(cons, ini=ini_mes)
@@ -117,9 +118,12 @@ def montar(sh):
         if d >= semana:
             saiu_sem[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
     L.append("\n📦 <b>Estoque</b> — item <b>resta</b>(vendido na semana)")
-    EMOJI_CAT = {"Cerveja": "🍺", "Refri": "🥤", "Bebida": "💧", "Salgado": "🍟"}
+    EMOJI_CAT = {"Cerveja": "🍺", "Refri": "🥤", "Bebida": "💧", "Salgado": "🍟",
+                 "Resenha": "🍖"}
     por_cat = collections.OrderedDict()
     for p in prods:
+        if not com_estoque(p):      # resenha e servico: nao aparece no estoque
+            continue
         cat = str(p.get("categoria", "")).strip()
         por_cat.setdefault(cat, []).append(p)
     for cat, itens in por_cat.items():
@@ -162,6 +166,11 @@ def confere_precos(prods):
 
 
 
+def com_estoque(p):
+    """Produto de prateleira. Resenha é serviço: marcada com controla_estoque=nao."""
+    return str(p.get("controla_estoque", "sim")).strip().lower() not in ("nao", "não", "n")
+
+
 def confere_estoque(sh, prods, cons):
     """Fecha a conta do estoque: tudo que entrou menos tudo que saiu tem que dar o que está
     na prateleira. Se não der, alguém deu entrada errada ou mexeu no estoque na mão."""
@@ -177,6 +186,8 @@ def confere_estoque(sh, prods, cons):
         saiu[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
     ruins = []
     for p in prods:
+        if not com_estoque(p):      # servico nao tem entrada nem prateleira para conferir
+            continue
         nome = str(p.get("produto", "")).strip()
         est = int(nf(p.get("estoque")))
         calc = ent.get(nome, 0) - saiu.get(nome, 0)

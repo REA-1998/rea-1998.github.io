@@ -918,14 +918,16 @@ function btRender(){
   const cats = [...new Set(BT_PROD.map(p=>p.categoria))];
   document.getElementById('bt-lista').innerHTML = cats.map(c=>{
     const itens = BT_PROD.filter(p=>p.categoria===c).map(p=>{
-      const q = BT_CART[p.produto]||0, fora = p.estoque<=0;
+      const q = BT_CART[p.produto]||0;
+      const semEst = p.controla===false;           // resenha: servico, nao tem prateleira
+      const fora = !semEst && p.estoque<=0;
       return `<div class="bt-item ${fora?'bt-esgotado':''}">
         <span class="bt-nome">${p.produto}</span>
-        <span class="bt-est">${fora?'esgotado':p.estoque+' un'}</span>
+        <span class="bt-est">${semEst?'':(fora?'esgotado':p.estoque+' un')}</span>
         <span class="bt-preco">R$ ${fmt(p.preco)}</span>
         <button class="bt-b" data-m="${p.produto}" ${q<1?'disabled':''}>−</button>
         <span class="bt-qtd" id="q-${btId(p.produto)}">${q}</span>
-        <button class="bt-b" data-p="${p.produto}" ${fora||q>=p.estoque?'disabled':''}>+</button></div>`;
+        <button class="bt-b" data-p="${p.produto}" ${fora||(!semEst&&q>=p.estoque)?'disabled':''}>+</button></div>`;
     }).join('');
     return `<div class="bt-cat">${c}</div>${itens}`;
   }).join('');
