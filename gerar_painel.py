@@ -639,6 +639,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="rsvp-msg" id="bt-msg">Escolha seu nome e marque o que pegou.</div>
     </div>
     <div id="bt-lista"></div>
+    <div id="bt-resenha" style="font-size:.82rem;color:#555;margin-top:16px;line-height:1.5"></div>
     <h3 style="margin-top:22px;font-size:1rem">🧾 Quem ainda deve o boteco</h3>
     <table><thead><tr><th>Atleta</th><th>O que falta pagar</th><th class="num">Em aberto</th></tr></thead>
       <tbody id="bt-extrato"></tbody></table>
@@ -954,6 +955,13 @@ function btExtrato(){
     </tr>`).join('')
     + `<tr><td colspan="2"><b>TOTAL A RECEBER</b></td><td class="num"><b>R$ ${fmt(aberto)}</b></td></tr>`;
   }
+  const srv = (B.servicos||[]);
+  const dr = document.getElementById('bt-resenha');
+  dr.innerHTML = srv.length
+    ? '🍖 <b>Quem marcou a resenha neste mês</b><br>' + srv.map(s=>
+        '&nbsp;&nbsp;' + s.produto + ': <b>' + s.qtd + '</b> (R$ ' + fmt(s.total) + ') — '
+        + s.quem.join(', ')).join('<br>')
+    : '';
   const pg = document.getElementById('bt-pagos');
   if(pagos.length){
     pg.innerHTML = '✅ <b>Já pagaram:</b> ' + pagos.map(a=>a.nome+' (R$ '+fmt(a.total)+')').join(' · ')

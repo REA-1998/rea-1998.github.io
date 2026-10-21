@@ -391,7 +391,28 @@ def dados_boteco(T):
                       "itens": (e or {}).get("boteco_itens", [])})
     lista.sort(key=lambda a: (-a["aberto"], -a["total"]))   # quem deve mais primeiro
     return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
-            "total": round(sum(por.values()), 2), "atletas": lista}
+            "total": round(sum(por.values()), 2), "atletas": lista,
+            "servicos": servicos_do_mes(T, mes_ini)}
+
+
+def servicos_do_mes(T, mes_ini):
+    """Itens sem prateleira (resenha): quantos marcaram e quem, no mês.
+    Não tem estoque para mostrar — o que interessa é a contagem de quem lançou."""
+    nomes = [str(p.get("produto", "")).strip() for p in T.get("BarProdutos", [])
+             if str(p.get("controla_estoque", "sim")).strip().lower() in ("nao", "não", "n")]
+    if not nomes:
+        return []
+    qtd, valor, quem = {}, {}, {}
+    for c in T.get("BarConsumo", []):
+        nome = str(c.get("produto", "")).strip()
+        d = data_iso(c.get("data"))
+        if nome not in nomes or d is None or d < mes_ini:
+            continue
+        qtd[nome] = qtd.get(nome, 0) + int(nf(c.get("qtd")))
+        valor[nome] = round(valor.get(nome, 0.0) + nf(c.get("total")), 2)
+        quem.setdefault(nome, set()).add(str(c.get("atleta", "")).strip().title())
+    return [{"produto": n, "qtd": qtd[n], "total": valor[n],
+             "quem": sorted(quem.get(n, []))} for n in nomes if qtd.get(n)]
 
 
 def extratos_do_mes(T):
