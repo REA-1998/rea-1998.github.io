@@ -450,12 +450,15 @@ def desfazer_consumo(linha, reg):
     produto = str(reg["produto"]).strip()
     qtd = int(_nfb(reg["qtd"]))
     valor = _nfb(reg["total"])
-    # devolve estoque
+    # devolve estoque (item de serviço, tipo resenha, não tem prateleira para devolver)
     pw = sh.worksheet("BarProdutos")
     pv = pw.get_all_values()
     ph = pv[0]
+    ic = ph.index("controla_estoque") if "controla_estoque" in ph else None
     for i, r in enumerate(pv[1:], start=2):
         if r[ph.index("produto")].strip().lower() == produto.lower():
+            if ic is not None and str(r[ic]).strip().lower() in ("nao", "não", "n"):
+                break
             novo = int(_nfb(r[ph.index("estoque")])) + qtd
             pw.update(values=[[novo]], range_name=rowcol_to_a1(i, ph.index("estoque") + 1),
                       value_input_option="RAW")
