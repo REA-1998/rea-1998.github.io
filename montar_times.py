@@ -32,7 +32,7 @@ POS_ORDEM = ["GOLEIRO", "ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"]
 POS_ABREV = {"GOLEIRO": "GOL", "ZAGUEIRO": "ZAG", "VOLANTE": "VOL", "MEIA": "MEI", "ATACANTE": "ATA"}
 EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VASCO": "⚫"}
 TITULARES_LINHA = 6
-EGNALDO_LINHA = ("ZAGUEIRO", 4)
+EGNALDO_LINHA = ("ZAGUEIRO", 40)   # nivel na escala 0-100 (equivale ao antigo 4)
 
 
 def _chave(s):
@@ -52,7 +52,9 @@ def _cadastro(T):
             continue
         pos = str(r.get("posicao", "")).strip().upper() or "MEIA"
         try:
-            nivel = int(float(str(r.get("nivel", "")).replace(",", ".") or 0))
+            # escala 0-100 (nivel 5 do antigo = 50). round e nao int: se alguem digitar
+            # 6,5 por engano vira 7 em vez de 6 - truncar escondia meio ponto.
+            nivel = int(round(float(str(r.get("nivel", "")).replace(",", ".") or 0)))
         except ValueError:
             nivel = 0
         out[_chave(nome)] = {"nome": nome.upper(), "pos": pos, "nivel": nivel,
