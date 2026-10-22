@@ -32,7 +32,19 @@ POS_ORDEM = ["GOLEIRO", "ZAGUEIRO", "VOLANTE", "MEIA", "ATACANTE"]
 POS_ABREV = {"GOLEIRO": "GOL", "ZAGUEIRO": "ZAG", "VOLANTE": "VOL", "MEIA": "MEI", "ATACANTE": "ATA"}
 EMOJI = {"AZUL": "🔵", "AMARELO": "🟡", "ROSA": "🩷", "VASCO": "⚫"}
 TITULARES_LINHA = 6
-EGNALDO_LINHA = ("ZAGUEIRO", 40)   # nivel na escala 0-100 (equivale ao antigo 4)
+POS_GK_NA_LINHA = "ZAGUEIRO"        # goleiro que vai pra linha entra como zagueiro
+NIVEL_GK_NA_LINHA = 40              # ... e cai pra este nivel, por nao ser jogador de linha
+# Excecao: quem joga igual nas duas funcoes mantem o proprio nivel (Mateus, 22/10/2026).
+MESMO_NIVEL_NA_LINHA = {"EGNALDO"}
+
+
+def _para_linha(j, avisos, motivo):
+    """Tira o goleiro do gol e manda pra zaga. Quem joga igual nas duas funcoes
+    (Egnaldo) mantem o proprio nivel; os outros caem para NIVEL_GK_NA_LINHA."""
+    j["pos"] = POS_GK_NA_LINHA
+    if _chave(j["nome"]) not in MESMO_NIVEL_NA_LINHA:
+        j["nivel"] = NIVEL_GK_NA_LINHA
+    avisos.append(motivo)
 
 
 def _chave(s):
@@ -140,8 +152,7 @@ def montar(confirmados, T, n_times=None, egnaldo=None):
     egn = next((j for j in gks_all if _chave(j["nome"]) == "EGNALDO"), None)
     if egnaldo == "linha" and egn:
         gks_all.remove(egn)
-        egn["pos"], egn["nivel"] = EGNALDO_LINHA
-        avisos.append("Egnaldo na LINHA (zagueiro) — sua escolha.")
+        _para_linha(egn, avisos, "Egnaldo na LINHA (zagueiro, mesmo nível) — sua escolha.")
     if egnaldo == "gol" and egn and egn in gks_all:
         sel = [egn] + [g for g in gks_all if g is not egn][:max(0, k - 1)]
         avisos.append("Egnaldo no GOL — sua escolha.")
@@ -149,8 +160,8 @@ def montar(confirmados, T, n_times=None, egnaldo=None):
         sel = gks_all[:k]
     for j in gks_all:
         if j not in sel:
-            j["pos"], j["nivel"] = EGNALDO_LINHA
-            avisos.append(f"{j['nome'].title()} joga na linha (zagueiro) — sobrou goleiro.")
+            _para_linha(j, avisos,
+                        f"{j['nome'].title()} joga na linha (zagueiro) — sobrou goleiro.")
     gks = sel
     for j in gks:
         j["em_gol"] = True
@@ -324,7 +335,7 @@ def montar_manual(por_cor, T):
             gks[0]["em_gol"] = True
             t["goleiro"] = gks[0]["nome"]
             for g in gks[1:]:
-                g["pos"], g["nivel"] = EGNALDO_LINHA
+                _para_linha(g, [], "")   # goleiro sobrando vai pra zaga
         _titulares(t)
         _ordenar_exibicao(t)
     n = sum(len(t["atletas"]) for t in times)
