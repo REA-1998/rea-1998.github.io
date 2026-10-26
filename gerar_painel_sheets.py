@@ -495,6 +495,11 @@ def gerar():
     dados = montar(T)
     html = G.TEMPLATE.replace("__DADOS__", json.dumps(dados, ensure_ascii=False))
     html = html.replace("__LOGO__", G.logo_html())
+    # grava o teto direto no HTML: o JS tambem ajusta, mas se ele falhar o atleta nao
+    # pode ficar lendo um limite que nao e o que o webhook aplica
+    teto = dados.get("bar_teto") or 100
+    html = html.replace('<span id="bt-teto">100</span>',
+                        f'<span id="bt-teto">{teto:.0f}</span>')
     # grava num temporário e troca de uma vez: se cair no meio, o site continua no ar
     # com a versão anterior em vez de meio arquivo
     tmp = OUTPUT.with_suffix(".html.tmp")
