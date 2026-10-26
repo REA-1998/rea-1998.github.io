@@ -480,6 +480,9 @@ def montar(T):
         "roster": roster_ativos(T),
         "posicoes": dados_posicoes(T),
         "consumo_aberto": consumo_em_aberto(T),
+        # teto de consumo em aberto; o texto do site le daqui pra nao ficar
+        # um numero escrito na mao no HTML divergindo do que o webhook aplica
+        "bar_teto": float(os.environ.get("BAR_TETO", "100")),
         "boteco": dados_boteco(T),
         "times": dados_times(T),
     }

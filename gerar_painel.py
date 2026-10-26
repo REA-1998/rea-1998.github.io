@@ -654,7 +654,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
       O que você consumir entra na sua conta e é cobrado junto com a mensalidade (aba 💳 Pagar).
       <b>Pague até o sábado seguinte</b> — consumo em aberto bloqueia a confirmação de presença.
-      Limite de R$ 100 em aberto.</p>
+      Limite de R$ <span id="bt-teto">100</span> em aberto.</p>
   </section>
 
   <section id="ultimo">
@@ -915,6 +915,12 @@ function btTotal(){
   document.getElementById('bt-enviar').disabled = !(t>0 && btSel.value);
   return t;
 }
+function btTetoTexto(){
+  const t = D.bar_teto;                    // vem do .env, nao fica escrito na mao no HTML
+  const el = document.getElementById('bt-teto');
+  if(el && t) el.textContent = fmt(t).replace(',00','');
+}
+btTetoTexto();
 function btRender(){
   const cats = [...new Set(BT_PROD.map(p=>p.categoria))];
   document.getElementById('bt-lista').innerHTML = cats.map(c=>{
