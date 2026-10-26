@@ -396,10 +396,11 @@ def dados_boteco(T):
 
 
 def servicos_do_mes(T, mes_ini):
-    """Itens sem prateleira (resenha): quantos marcaram e quem, no mês.
+    """Itens sem prateleira (resenha, água de coco...): quantos marcaram e quem, no mês.
     Não tem estoque para mostrar — o que interessa é a contagem de quem lançou."""
-    nomes = [str(p.get("produto", "")).strip() for p in T.get("BarProdutos", [])
-             if str(p.get("controla_estoque", "sim")).strip().lower() in ("nao", "não", "n")]
+    nomes = {str(p.get("produto", "")).strip(): str(p.get("categoria", "")).strip()
+             for p in T.get("BarProdutos", [])
+             if str(p.get("controla_estoque", "sim")).strip().lower() in ("nao", "não", "n")}
     if not nomes:
         return []
     qtd, valor, quem = {}, {}, {}
@@ -411,8 +412,9 @@ def servicos_do_mes(T, mes_ini):
         qtd[nome] = qtd.get(nome, 0) + int(nf(c.get("qtd")))
         valor[nome] = round(valor.get(nome, 0.0) + nf(c.get("total")), 2)
         quem.setdefault(nome, set()).add(str(c.get("atleta", "")).strip().title())
-    return [{"produto": n, "qtd": qtd[n], "total": valor[n],
-             "quem": sorted(quem.get(n, []))} for n in nomes if qtd.get(n)]
+    return [{"produto": n, "categoria": nomes[n], "qtd": qtd[n], "total": valor[n],
+             "quem": sorted(quem.get(n, []))}
+            for n in sorted(nomes, key=lambda x: (nomes[x], x)) if qtd.get(n)]
 
 
 def extratos_do_mes(T):

@@ -27,6 +27,8 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 DESTINOS = [x.strip() for x in str(os.environ["TELEGRAM_ALLOWED_ID"]).replace(";", ",").split(",") if x.strip()]
 MESES = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 ESTOQUE_BAIXO = 5
+EMOJI_CAT = {"Cerveja": "🍺", "Refri": "🥤", "Bebida": "💧", "Salgado": "🍟",
+             "Resenha": "🍖", "Água de coco": "🥥"}
 
 
 def nf(x):
@@ -122,8 +124,6 @@ def montar(sh):
         L.append("")
         L.append(bloco_srv)
     L.append("\n📦 <b>Estoque</b> — item <b>resta</b>(vendido na semana)")
-    EMOJI_CAT = {"Cerveja": "🍺", "Refri": "🥤", "Bebida": "💧", "Salgado": "🍟",
-                 "Resenha": "🍖"}
     por_cat = collections.OrderedDict()
     for p in prods:
         if not com_estoque(p):      # resenha e servico: nao aparece no estoque
@@ -182,8 +182,10 @@ def e_servico(p):
 
 
 def resumo_servicos(prods, cons, semana, ini_mes):
-    """Quantos marcaram cada item de serviço (resenha): na semana, no mês, e quem."""
-    servicos = [str(p["produto"]).strip() for p in prods if e_servico(p)]
+    """Itens sem prateleira (resenha, água de coco...): quantos marcaram, na semana e no
+    mês, e quem. Agrupa por categoria — não é tudo resenha."""
+    servicos = {str(p["produto"]).strip(): str(p.get("categoria", "")).strip()
+                for p in prods if e_servico(p)}
     if not servicos:
         return ""
     sem, mes = collections.defaultdict(int), collections.defaultdict(int)
@@ -203,13 +205,18 @@ def resumo_servicos(prods, cons, semana, ini_mes):
         if d >= semana:
             sem[nome] += q
     if not mes:
-        return "🍖 <b>Resenha</b>: ninguém marcou ainda neste mês."
-    linhas = ["🍖 <b>Quem marcou a resenha</b>"]
-    for nome in servicos:
-        if not mes.get(nome):
+        cats = sorted(set(servicos.values()))
+        return "ℹ️ Ninguém marcou ainda neste mês: " + ", ".join(cats) + "."
+    linhas = []
+    for cat in sorted(set(servicos.values())):
+        itens = [n for n, c in servicos.items() if c == cat and mes.get(n)]
+        if not itens:
             continue
-        linhas.append(f"  • {nome}: <b>{sem.get(nome, 0)}</b> na semana · {mes[nome]} no mês")
-        linhas.append("     " + ", ".join(sorted(set(quem[nome]))))
+        linhas.append(f"{EMOJI_CAT.get(cat, '•')} <b>Quem marcou — {cat}</b>")
+        for nome in sorted(itens):
+            linhas.append(f"  • {nome}: <b>{sem.get(nome, 0)}</b> na semana · "
+                          f"{mes[nome]} no mês")
+            linhas.append("     " + ", ".join(sorted(set(quem[nome]))))
     return chr(10).join(linhas)
 
 

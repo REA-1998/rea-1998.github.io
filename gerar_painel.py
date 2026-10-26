@@ -957,11 +957,18 @@ function btExtrato(){
   }
   const srv = (B.servicos||[]);
   const dr = document.getElementById('bt-resenha');
-  dr.innerHTML = srv.length
-    ? '🍖 <b>Quem marcou a resenha neste mês</b><br>' + srv.map(s=>
-        '&nbsp;&nbsp;' + s.produto + ': <b>' + s.qtd + '</b> (R$ ' + fmt(s.total) + ') — '
-        + s.quem.join(', ')).join('<br>')
-    : '';
+  const EMOJI_SRV = {'Resenha':'🍖','Água de coco':'🥥'};
+  let hs = '', catAtual = null;
+  srv.forEach(s=>{
+    if(s.categoria !== catAtual){
+      catAtual = s.categoria;
+      hs += (hs?'<br>':'') + (EMOJI_SRV[catAtual]||'•') + ' <b>Quem marcou — '
+            + catAtual + ' (mês)</b><br>';
+    }
+    hs += '&nbsp;&nbsp;' + s.produto + ': <b>' + s.qtd + '</b> (R$ ' + fmt(s.total)
+          + ') — ' + s.quem.join(', ') + '<br>';
+  });
+  dr.innerHTML = hs;
   const pg = document.getElementById('bt-pagos');
   if(pagos.length){
     pg.innerHTML = '✅ <b>Já pagaram:</b> ' + pagos.map(a=>a.nome+' (R$ '+fmt(a.total)+')').join(' · ')
