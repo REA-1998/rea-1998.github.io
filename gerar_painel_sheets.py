@@ -14,6 +14,7 @@ import os
 import io
 import json
 import base64
+import time
 import datetime
 import collections
 from pathlib import Path
@@ -37,29 +38,41 @@ ABAS = ["Atletas", "Lancamentos", "Pagamentos", "Movimentos", "Sabados"]
 MESES = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 
 
+def _ler(sh, aba, obrigatoria=True, tentativas=3, espera=20):
+    """Lê uma aba, insistindo quando a cota do Google estoura.
+
+    Em 26/10/2026 um 429 passageiro virou lista vazia (o except era genérico) e o painel
+    publicou o boteco zerado — inclusive a lista de quem está bloqueado por dívida, que
+    ficou vazia. Erro agora sobe e aborta a geração: é melhor o site ficar um ciclo
+    desatualizado do que mostrar que ninguém deve nada.
+    """
+    for i in range(tentativas):
+        try:
+            return sh.worksheet(aba).get_all_records()
+        except gspread.WorksheetNotFound:
+            if obrigatoria:
+                raise
+            return []
+        except gspread.exceptions.APIError as e:
+            passageiro = "429" in str(e) or "Quota" in str(e)
+            if not passageiro or i == tentativas - 1:
+                raise
+            print(f"cota do Google estourou lendo {aba}; tentando de novo em {espera}s")
+            time.sleep(espera)
+
+
 def carregar():
     """Lê as abas tidy do Google Sheets como listas de dicionários."""
     creds = Credentials.from_service_account_file(
         SA_JSON, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     sh = gspread.authorize(creds).open_by_key(SHEET_ID)
-    out = {a: sh.worksheet(a).get_all_records() for a in ABAS}
-    try:  # aba do Pix é opcional (só existe depois que o Pix automático foi ativado)
-        out["PixCobrancas"] = sh.worksheet("PixCobrancas").get_all_records()
-    except Exception:
-        out["PixCobrancas"] = []
-    try:  # aba do último racha (o bot grava; se não existir, usa o fixo do gerar_painel)
-        out["UltimoRacha"] = sh.worksheet("UltimoRacha").get_all_records()
-    except Exception:
-        out["UltimoRacha"] = []
-    try:  # times do sábado (o bot grava ao publicar)
-        out["Times"] = sh.worksheet("Times").get_all_records()
-    except Exception:
-        out["Times"] = []
-    for aba in ("BarProdutos", "BarConsumo"):   # boteco (opcional)
-        try:
-            out[aba] = sh.worksheet(aba).get_all_records()
-        except Exception:
-            out[aba] = []
+    out = {a: _ler(sh, a) for a in ABAS}
+    # Abas opcionais: só existem depois que o recurso foi ligado. Se a aba não existe,
+    # lista vazia é a resposta certa. Qualquer OUTRO erro tem que estourar — ver _ler().
+    for aba in ("PixCobrancas", "UltimoRacha", "Times", "BarProdutos", "BarConsumo"):
+        out[aba] = _ler(sh, aba, obrigatoria=False)
+    if not out.get("Atletas"):
+        raise RuntimeError("aba Atletas veio vazia — não vou publicar um painel sem dados")
     return out
 
 
@@ -479,7 +492,11 @@ def gerar():
     dados = montar(T)
     html = G.TEMPLATE.replace("__DADOS__", json.dumps(dados, ensure_ascii=False))
     html = html.replace("__LOGO__", G.logo_html())
-    OUTPUT.write_text(html, encoding="utf-8")
+    # grava num temporário e troca de uma vez: se cair no meio, o site continua no ar
+    # com a versão anterior em vez de meio arquivo
+    tmp = OUTPUT.with_suffix(".html.tmp")
+    tmp.write_text(html, encoding="utf-8")
+    os.replace(tmp, OUTPUT)
     print("Painel gerado (Sheets):", OUTPUT)
 
 
