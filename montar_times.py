@@ -1,27 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-Montagem de times do Racha REA — determinística, pelas regras do Mateus (rev. 21/08/2026).
+Montagem de times do Racha REA — pelas regras do Mateus (rev. 26/10/2026).
 
-REGRAS (rev. 21/08/2026 v3):
+REGRAS (rev. 26/10/2026 v4):
  1) Time = 6 titulares de linha + 1 goleiro + reservas. Time com 6 na linha e SEM goleiro
     é válido (linha reveza no gol).
  2) QUEM DECIDE o nº de times é o Mateus, no comando: "2times", "3times" ou "4times".
-    Sem número o bot pergunta.
- 3) Titulares de linha = os 6 de MAIOR NÍVEL do time (desempate: pontos de fiel).
+    Sem número o bot pergunta (não monta sozinho).
+ 3) "Titular" tem DOIS sentidos, e não são a mesma lista:
+    - para EQUILIBRAR os times: os 6 de linha de MAIOR NÍVEL;
+    - para decidir QUEM COMEÇA JOGANDO: os 6 de linha com MAIS pontos de Atleta Fiel.
+    O nível divide os times; o fiel decide quem senta no banco.
  4) EQUILÍBRIO: soma dos níveis dos TITULARES DE LINHA o mais igual possível (prioridade
     máxima) E soma dos níveis dos RESERVAS também equilibrada (2º critério).
  5) GOLEIROS entram DEPOIS, como compensação: o melhor goleiro (Alexandre) vai pro time
     com MENOR soma de linha titular; empates são SORTEADOS.
  6) Egnaldo: o Mateus decide no comando ("egnaldo linha" ou "egnaldo gol"). Sem escolha,
     automático: ordem de gol por nível (Alexandre > Iroshi > Egnaldo); goleiro que sobrar
-    joga na linha como ZAGUEIRO nível 4; goleiro que faltar, o próximo assume.
+    joga na linha como ZAGUEIRO com NIVEL_GK_NA_LINHA (40), por não ser jogador de linha;
+    goleiro que faltar, o próximo assume. EXCEÇÃO: quem está em MESMO_NIVEL_NA_LINHA
+    (Egnaldo) joga igual nas duas funções e leva o próprio nível.
  7) POSIÇÕES por cota: cada posição repartida o mais igual possível (dif. máx. 1 por
     posição entre times), de trás pra frente (ZAG→VOL→MEI→ATA); time com menos defensores
     tem preferência pelo próximo volante etc. Total de linha: dif. máx. 1.
  8) NÃO determinístico: empates e escolhas equivalentes são SORTEADOS — cada rodada do
     comando pode variar os times (mantendo o equilíbrio).
- 9) NÍVEIS: aparecem SÓ na mensagem do Telegram pro Mateus (formatar_telegram, com as
-    somatórias de titulares e reservas). A versão pública NUNCA mostra nível.
+ 9) NÍVEIS: escala 0-100 (a antiga 1-10 x10, para caber meio ponto: 5,5 vira 55).
+    Aparecem SÓ na mensagem do Telegram pro Mateus (formatar_telegram, com as somatórias
+    de titulares e reservas). A versão pública NUNCA mostra nível.
+10) Depois da distribuição por cotas, roda um refinamento de até 300 passadas trocando
+    jogadores 1x1 de MESMA posição entre times, aceitando a troca só quando o equilíbrio
+    melhora — assim as cotas de posição e o total de cada time ficam preservados.
 """
 import random
 import unicodedata
