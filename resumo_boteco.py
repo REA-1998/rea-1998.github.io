@@ -44,10 +44,18 @@ def sheets():
     return gspread.authorize(creds).open_by_key(os.environ["SHEET_ID"])
 
 
-def montar(sh):
+def montar(sh, detalhe="mes"):
+    """Monta o relatorio do boteco.
+
+    detalhe="mes"    -> a lista por atleta cobre o mes (e o que cai na terca as 9h)
+    detalhe="semana" -> a lista por atleta cobre so os ultimos 7 dias (comando do bot)
+
+    O que esta em ABERTO continua sempre apurado no mes, porque a divida e mensal.
+    """
     hoje = datetime.date.today()
     ini_mes = hoje.replace(day=1)
     semana = hoje - datetime.timedelta(days=7)
+    ini_det = semana if detalhe == "semana" else ini_mes
     cons = sh.worksheet("BarConsumo").get_all_records()
 
     sem_tot, mes_tot = 0.0, 0.0
@@ -62,12 +70,13 @@ def montar(sh):
         v = nf(c.get("total"))
         if d >= ini_mes:
             mes_tot += v
+        if d >= semana:
+            sem_tot += v
+        if d >= ini_det:
             nome = str(c.get("atleta", "")).strip().title()
             por_atleta[nome] += v
             itens_at[nome][str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
             top_prod[str(c.get("produto", "")).strip()] += int(nf(c.get("qtd")))
-        if d >= semana:
-            sem_tot += v
 
     prods = sh.worksheet("BarProdutos").get_all_records()
     com_est = [p for p in prods if com_estoque(p)]
@@ -96,7 +105,9 @@ def montar(sh):
     L.append(f"💰 Vendido na semana: <b>R$ {sem_tot:.2f}</b>")
     L.append(f"📅 No mês ({mes}): <b>R$ {mes_tot:.2f}</b>")
     if por_atleta:
-        L.append("\n<b>Consumo do mês</b>")
+        titulo = ("Consumo da semana (desde " + semana.strftime("%d/%m") + ")"
+                  if detalhe == "semana" else "Consumo do mês")
+        L.append("\n<b>" + titulo + "</b>")
         for nome, v in sorted(por_atleta.items(), key=lambda kv: -kv[1]):
             det = ", ".join(f"{q}x {p}" for p, q in
                             sorted(itens_at[nome].items(), key=lambda kv: -kv[1])[:4])

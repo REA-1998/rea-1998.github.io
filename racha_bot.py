@@ -31,6 +31,7 @@ import gspread
 from gspread.utils import rowcol_to_a1
 import requests
 import montar_times as M
+import resumo_boteco as RB   # mesmo relatorio da terca, para nao existirem duas contas
 from google.oauth2.service_account import Credentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, MessageHandler,
@@ -506,6 +507,42 @@ async def cmd_desfazer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Desfazer? O item volta ao estoque e sai da conta dele.", reply_markup=kb)
 
 
+def _partes_telegram(txt, limite=3500):
+    """O Telegram recusa mensagem acima de 4096 caracteres. Quebra em pedacos, sempre em
+    fim de linha, para nao cortar uma tag <b> no meio e estragar o HTML."""
+    partes, atual = [], ""
+    for linha in txt.split("\n"):
+        if atual and len(atual) + len(linha) + 1 > limite:
+            partes.append(atual)
+            atual = linha
+        else:
+            atual = linha if not atual else atual + "\n" + linha
+    if atual:
+        partes.append(atual)
+    return partes
+
+
+async def cmd_boteco(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """'boteco' - consumo da semana, quem esta devendo, resenha e estoque.
+
+    E o mesmo relatorio que cai sozinho na terca as 9h; a diferenca e que aqui a lista
+    por atleta vem so da semana. 'boteco mes' traz o mes inteiro."""
+    if not so_eu(update):
+        await negar_acesso(update)
+        return
+    txt = (update.message.text or "").strip().lower()
+    detalhe = "mes" if _re.search(r"m[eê]s", txt) else "semana"
+    await update.message.reply_text("🍺 Levantando o boteco...")
+    try:
+        rel = await asyncio.to_thread(RB.montar, sheet(), detalhe)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Nao consegui montar o resumo: {e}")
+        return
+    for parte in _partes_telegram(rel):
+        await update.message.reply_text(parte, parse_mode="HTML",
+                                        disable_web_page_preview=True)
+
+
 def _kb_times():
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("📣 Publicar no site", callback_data="times_ok"),
@@ -567,7 +604,12 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚽ Bot do Racha REA pronto!\nManda a foto da súmula que eu leio, "
         "te mando o resumo pra conferir e, no seu OK, lanço no painel.\n\n"
-        "Comandos: 2times / 3times (montar times) · desfazer NOME (corrigir boteco)")
+        "Comandos:\n"
+        "  • <b>boteco</b> — consumo da semana, quem deve, resenha e "
+        "estoque (<i>boteco mes</i> traz o mês inteiro)\n"
+        "  • <b>2times</b> / <b>3times</b> — montar os times dos confirmados\n"
+        "  • <b>desfazer NOME</b> — apagar o último lançamento do boteco",
+        parse_mode="HTML")
 
 
 async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -598,8 +640,10 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
     if _re.match(r"^/?([234]\s*)?times", txt.lower()):
         return await cmd_times(update, ctx)
-    if _re.match(r"^/?desfazer", txt.lower()):
+    if _re.match(r"^/?desfazer\b", txt.lower()):
         return await cmd_desfazer(update, ctx)
+    if _re.match(r"^/?(boteco|bar)\b", txt.lower()):
+        return await cmd_boteco(update, ctx)
     d = pendentes.get(cid)
     if not d and cid in pendentes_times:
         # ajuste dos times por chat
@@ -706,6 +750,8 @@ def main():
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("times", cmd_times))
     app.add_handler(CommandHandler("desfazer", cmd_desfazer))
+    app.add_handler(CommandHandler("boteco", cmd_boteco))
+    app.add_handler(CommandHandler("bar", cmd_boteco))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_button))
