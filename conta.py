@@ -97,6 +97,13 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
     """
     sa = nf(reg.get("s_a"))
     outros = nf(reg.get("mensalidade")) + nf(reg.get("multa_chu"))
+    # s_a negativo e credito trazido do mes anterior (quem pagou adiantado). Entra como
+    # pagamento feito no dia 1o, senao ele abatia o total mas o boteco continuava "em
+    # aberto" - e boteco em aberto trava presenca e o teto de consumo de quem, na verdade,
+    # nao deve nada. Caso do Bruno em 27/10/2026: R$223,43 de credito combinado com ele.
+    credito_anterior = 0.0
+    if sa < 0:
+        credito_anterior, sa = -sa, 0.0
     pago = nf(reg.get("valor_pago"))
     cons = sorted(consumos, key=lambda x: x[0])
     consumo_total = nf(reg.get("consumo")) or round(sum(v for _, v in cons), 2)
@@ -124,6 +131,10 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
     # linha do tempo: no empate, o consumo entra antes (o pagamento daquele instante o cobre)
     eventos = ([(c[0], 0, c[1], c[2] if len(c) > 2 else None) for c in cons]
                + [(p[0], 1, p[1], None) for p in pgs])
+    if credito_anterior > 0.009:
+        d0 = (datetime.datetime.combine(ini_mes, datetime.time())
+              if ini_mes else datetime.datetime(1900, 1, 1))
+        eventos.append((d0, 1, credito_anterior, None))
     eventos.sort(key=lambda e: (e[0], e[1]))
 
     fila, credito = [], 0.0   # fila = [restante, item, valor cheio], mais antigo primeiro
