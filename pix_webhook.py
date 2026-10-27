@@ -100,7 +100,11 @@ def _consumo_aberto(sh, atleta, mes):
 
     Conta-corrente (conta.py): o pagamento abate PRIMEIRO o boteco, mas só o consumo que
     JÁ EXISTIA quando o dinheiro entrou. Quem pagou de manhã e bebeu à noite continua
-    devendo a bebida — e por isso trava a presença."""
+    devendo a bebida — e por isso trava a presença.
+
+    Devolve (em_aberto, credito). Quem pagou adiantado tem crédito sobrando, e o item que
+    ele está lançando agora já sai pago por esse crédito — antes a tela dizia que ele
+    devia (caso do Bruno em 27/10/2026, que viu "R$ 15,00 em aberto" devendo R$ 0,00)."""
     alvo = atleta.strip().upper()
     reg = next((r for r in _aba(sh, "Pagamentos")
                 if str(r.get("mes", "")).strip().upper() == mes.upper()
@@ -110,7 +114,9 @@ def _consumo_aberto(sh, atleta, mes):
     ini = datetime.date.today().replace(day=1)
     cons = C.consumos_por_atleta(_aba(sh, "BarConsumo"), ini=ini).get(alvo, [])
     pgs = C.pagamentos_por_atleta(_aba(sh, "PixCobrancas"), ini=ini).get(alvo, [])
-    return C.extrato(reg, cons, pgs, ini)["boteco_aberto"]
+    e = C.extrato(reg, cons, pgs, ini)
+    # devolve tambem o credito, para o proximo item ja nascer coberto por ele
+    return e["boteco_aberto"], e["credito"]
 
 
 def _somar_consumo_na_conta(sh, atleta, mes, valor):
@@ -322,11 +328,15 @@ def make_app():
         if not novos:
             return jsonify({"ok": False, "erro": "nenhum item válido"}), 400
         # trava: teto de consumo em aberto
-        aberto = _consumo_aberto(sh, atleta, mes)
-        if aberto + total > TETO_CONSUMO:
+        aberto, credito = _consumo_aberto(sh, atleta, mes)
+        # o credito cobre o item novo antes de ele virar divida; quem tem credito nao pode
+        # ser barrado pelo teto nem ler na tela que deve
+        depois = max(0.0, round(aberto + total - credito, 2))
+        if depois > TETO_CONSUMO:
+            ja = max(0.0, round(aberto - credito, 2))
             return jsonify({"ok": False,
                             "erro": f"limite de R$ {TETO_CONSUMO:.0f} atingido "
-                                    f"(você já tem R$ {aberto:.2f} em aberto). Acerte antes de consumir mais."}), 409
+                                    f"(você já tem R$ {ja:.2f} em aberto). Acerte antes de consumir mais."}), 409
         _ws(sh, "BarConsumo").append_rows(novos, value_input_option="RAW")
         for aba in ("BarConsumo", "Pagamentos"):   # só o que o lançamento mexeu;
             _CACHE.pop(aba, None)                  # recarregar tudo estourava a cota
@@ -334,7 +344,7 @@ def make_app():
             pw_.batch_update(ups_estoque, value_input_option="RAW")
         _somar_consumo_na_conta(sh, atleta, mes, total)
         return jsonify({"ok": True, "total": f"{total:.2f}",
-                        "em_aberto": f"{aberto + total:.2f}", "itens": len(novos)})
+                        "em_aberto": f"{depois:.2f}", "itens": len(novos)})
 
     @app.post("/pix-racha/cobranca")
     def cobranca_sob_medida():
