@@ -110,7 +110,9 @@ def _consumo_aberto(sh, atleta, mes):
                 if str(r.get("mes", "")).strip().upper() == mes.upper()
                 and str(r.get("atleta", "")).strip().upper() == alvo), None)
     if reg is None:
-        return 0.0
+        # sem linha do mes ainda (virada de mes): nada em aberto, nenhum credito.
+        # TEM de ser tupla - o chamador desempacota (aberto, credito).
+        return 0.0, 0.0
     ini = datetime.date.today().replace(day=1)
     cons = C.consumos_por_atleta(_aba(sh, "BarConsumo"), ini=ini).get(alvo, [])
     pgs = C.pagamentos_por_atleta(_aba(sh, "PixCobrancas"), ini=ini).get(alvo, [])
