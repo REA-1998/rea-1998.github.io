@@ -106,7 +106,7 @@ def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
         credito_anterior, sa = -sa, 0.0
     pago = nf(reg.get("valor_pago"))
     cons = sorted(consumos, key=lambda x: x[0])
-    consumo_total = nf(reg.get("consumo")) or round(sum(v for _, v in cons), 2)
+    consumo_total = nf(reg.get("consumo")) or round(sum(c[1] for c in cons), 2)
 
     pgs = sorted(pagamentos, key=lambda x: x[0])
     resid = round(pago - sum(v for _, v in pgs), 2)
