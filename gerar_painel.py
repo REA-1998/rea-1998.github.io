@@ -950,7 +950,7 @@ function btExtrato(){
   const tb = document.getElementById('bt-extrato');
   const devem = B.atletas.filter(a=>a.aberto>0);
   const pagos = B.atletas.filter(a=>!(a.aberto>0));
-  if(!B.atletas.length){ tb.innerHTML='<tr><td colspan="3" class="vazio">ninguém consumiu ainda neste mês</td></tr>'; }
+  if(!B.atletas.length){ tb.innerHTML='<tr><td colspan="3" class="vazio">ninguém consumiu nesta semana</td></tr>'; }
   else if(!devem.length){ tb.innerHTML='<tr><td colspan="3" class="vazio">✅ todo mundo em dia com o boteco!</td></tr>'; }
   else {
     const aberto = devem.reduce((s,a)=>s+a.aberto,0);
@@ -969,7 +969,7 @@ function btExtrato(){
     if(s.categoria !== catAtual){
       catAtual = s.categoria;
       hs += (hs?'<br>':'') + (EMOJI_SRV[catAtual]||'•') + ' <b>Quem marcou — '
-            + catAtual + ' (mês)</b><br>';
+            + catAtual + ' (semana do racha)</b><br>';
     }
     hs += '&nbsp;&nbsp;' + s.produto + ': <b>' + s.qtd + '</b> (R$ ' + fmt(s.total)
           + ') — ' + s.quem.join(', ') + '<br>';
@@ -978,7 +978,7 @@ function btExtrato(){
   const pg = document.getElementById('bt-pagos');
   if(pagos.length){
     pg.innerHTML = '✅ <b>Já pagaram:</b> ' + pagos.map(a=>a.nome+' (R$ '+fmt(a.total)+')').join(' · ')
-      + ' — total consumido no mês: R$ ' + fmt(B.total);
+      + ' — total consumido na semana: R$ ' + fmt(B.total);
   } else { pg.innerHTML = ''; }
 }
 btExtrato();

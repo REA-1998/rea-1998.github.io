@@ -380,37 +380,61 @@ def dados_financeiro(T):
     return linhas
 
 
-def dados_boteco(T):
-    """Extrato do boteco do mês: por atleta, quanto consumiu no mês, quanto ainda deve e
-    QUAIS ITENS estão em aberto. Fica visível no site para todo mundo conferir.
+def inicio_janela_racha(agora=None):
+    """Comeco da semana do racha: o sabado 15h mais recente que ja passou.
 
-    A lista de itens mostra só o que falta pagar, não o histórico do mês: quem já acertou
-    parte da conta via o QR não precisa ver de novo o que já pagou."""
+    A janela vai de sabado 15h ate o sabado seguinte 14h59 - o racha e 16h30, entao 15h
+    pega quem ja chega comprando e fecha antes do racha da semana seguinte comecar.
+    """
+    agora = agora or datetime.datetime.now()
+    dias = (agora.weekday() - 5) % 7          # 5 = sabado; 0 quando hoje e sabado
+    ini = (agora - datetime.timedelta(days=dias)).replace(
+        hour=15, minute=0, second=0, microsecond=0)
+    if ini > agora:                            # sabado antes das 15h: a janela e a anterior
+        ini -= datetime.timedelta(days=7)
+    return ini
+
+
+def dados_boteco(T):
+    """Boteco no site: quanto cada um consumiu NA SEMANA DO RACHA, quanto ainda deve e
+    QUAIS ITENS estão em aberto. Fica visível para todo mundo conferir.
+
+    Dois períodos convivem de propósito:
+      - `total` (o que apareceu no consumo) é a janela sábado 15h → sábado 14h59, que é o
+        que o atleta quer ver quando abre a aba depois do racha;
+      - `aberto` e `itens` continuam do MÊS, porque é o mês que vira cobrança.
+
+    A lista de itens mostra só o que falta pagar, não o histórico: quem já acertou parte da
+    conta via o QR não precisa ver de novo o que já pagou."""
     hoje = datetime.date.today()
-    mes_ini = hoje.replace(day=1)
+    ini = inicio_janela_racha()
     por = {}
     for c in T.get("BarConsumo", []):
-        d = data_iso(c.get("data"))
-        if d is None or d < mes_ini:
+        q = C._quando_consumo(c)
+        if q is None or q < ini:
             continue
         nome = str(c.get("atleta", "")).strip().title()
         por[nome] = por.get(nome, 0.0) + nf(c.get("total"))
     ext = extratos_do_mes(T)
+    # quem deve do mês entra na lista mesmo sem ter consumido nesta semana, senão o
+    # devedor da semana passada sumia da tabela de cobrança
+    nomes = set(por) | {n.title() for n, e in ext.items() if e.get("boteco_aberto", 0) > 0}
     lista = []
-    for nome in por:
+    for nome in nomes:
         e = ext.get(nome.upper())
-        lista.append({"nome": nome, "total": round(por[nome], 2),
+        lista.append({"nome": nome, "total": round(por.get(nome, 0.0), 2),
                       "aberto": round(e["boteco_aberto"], 2) if e else 0.0,
                       "itens": (e or {}).get("boteco_itens", [])})
     lista.sort(key=lambda a: (-a["aberto"], -a["total"]))   # quem deve mais primeiro
     return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
+            "janela": ini.strftime("%d/%m %Hh"),
             "total": round(sum(por.values()), 2), "atletas": lista,
-            "servicos": servicos_do_mes(T, mes_ini)}
+            "servicos": servicos_da_semana(T, ini)}
 
 
-def servicos_do_mes(T, mes_ini):
-    """Itens sem prateleira (resenha, água de coco...): quantos marcaram e quem, no mês.
-    Não tem estoque para mostrar — o que interessa é a contagem de quem lançou."""
+def servicos_da_semana(T, ini):
+    """Itens sem prateleira (resenha, água de coco...): quantos marcaram e quem, na semana
+    do racha. Não tem estoque para mostrar — o que interessa é a contagem de quem lançou."""
     nomes = {str(p.get("produto", "")).strip(): str(p.get("categoria", "")).strip()
              for p in T.get("BarProdutos", [])
              if str(p.get("controla_estoque", "sim")).strip().lower() in ("nao", "não", "n")}
@@ -419,8 +443,8 @@ def servicos_do_mes(T, mes_ini):
     qtd, valor, quem = {}, {}, {}
     for c in T.get("BarConsumo", []):
         nome = str(c.get("produto", "")).strip()
-        d = data_iso(c.get("data"))
-        if nome not in nomes or d is None or d < mes_ini:
+        q = C._quando_consumo(c)
+        if nome not in nomes or q is None or q < ini:
             continue
         qtd[nome] = qtd.get(nome, 0) + int(nf(c.get("qtd")))
         valor[nome] = round(valor.get(nome, 0.0) + nf(c.get("total")), 2)

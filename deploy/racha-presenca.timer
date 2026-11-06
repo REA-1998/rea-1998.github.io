@@ -1,0 +1,9 @@
+[Unit]
+Description=Sabado 13h: fecha a lista de presenca antes de montar os times
+
+[Timer]
+OnCalendar=Sat *-*-* 13:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target
