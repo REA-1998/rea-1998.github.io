@@ -381,18 +381,16 @@ def dados_financeiro(T):
 
 
 def inicio_janela_racha(agora=None):
-    """Comeco da semana do racha: o sabado 15h mais recente que ja passou.
+    """Comeco da semana do racha: o sabado mais recente, a partir da meia-noite.
 
-    A janela vai de sabado 15h ate o sabado seguinte 14h59 - o racha e 16h30, entao 15h
-    pega quem ja chega comprando e fecha antes do racha da semana seguinte comecar.
+    A janela vai de sabado 00h ate o sabado seguinte 23h59. Comecou em 15h, mas quem
+    marcava o consumo na manha do sabado (resenha paga antes do jogo) caia na semana
+    anterior e sumia do resumo do proprio racha.
     """
     agora = agora or datetime.datetime.now()
     dias = (agora.weekday() - 5) % 7          # 5 = sabado; 0 quando hoje e sabado
-    ini = (agora - datetime.timedelta(days=dias)).replace(
-        hour=15, minute=0, second=0, microsecond=0)
-    if ini > agora:                            # sabado antes das 15h: a janela e a anterior
-        ini -= datetime.timedelta(days=7)
-    return ini
+    return (agora - datetime.timedelta(days=dias)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
 
 
 def dados_boteco(T):
@@ -400,7 +398,7 @@ def dados_boteco(T):
     QUAIS ITENS estão em aberto. Fica visível para todo mundo conferir.
 
     Dois períodos convivem de propósito:
-      - `total` (o que apareceu no consumo) é a janela sábado 15h → sábado 14h59, que é o
+      - `total` (o que apareceu no consumo) é a janela sábado 00h → sábado 23h59, que é o
         que o atleta quer ver quando abre a aba depois do racha;
       - `aberto` e `itens` continuam do MÊS, porque é o mês que vira cobrança.
 
@@ -427,7 +425,7 @@ def dados_boteco(T):
                       "itens": (e or {}).get("boteco_itens", [])})
     lista.sort(key=lambda a: (-a["aberto"], -a["total"]))   # quem deve mais primeiro
     return {"mes": f"{MESES[hoje.month - 1]} {hoje.year}",
-            "janela": ini.strftime("%d/%m %Hh"),
+            "janela": ini.strftime("%d/%m"),
             "total": round(sum(por.values()), 2), "atletas": lista,
             "servicos": servicos_da_semana(T, ini)}
 
