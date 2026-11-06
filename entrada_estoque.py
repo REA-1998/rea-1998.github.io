@@ -138,6 +138,9 @@ def _conferir(sh):
     for p in sh.worksheet("BarProdutos").get_all_records():
         nome = str(p.get("produto", "")).strip()
         est = int(nf(p.get("estoque")))
+        # item de servico (resenha, agua de coco) nao tem prateleira: so o estoque conferia
+        if str(p.get("controla_estoque", "sim")).strip().lower() in ("nao", "não", "n"):
+            continue
         if ent.get(nome, 0) - saiu.get(nome, 0) != est:
             ruins.append(f"  {nome}: conta {ent.get(nome, 0) - saiu.get(nome, 0)}, estoque {est}")
     print("conferência: OK, entrou − vendeu = estoque" if not ruins
