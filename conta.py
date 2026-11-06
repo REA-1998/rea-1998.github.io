@@ -84,6 +84,131 @@ def pagamentos_por_atleta(rows, ini=None, fim=None):
     return out
 
 
+MESES3 = ("JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ")
+
+
+def ordem_mes(mes):
+    """'OUT 2026' -> (2026, 10). Serve para percorrer os meses na ordem certa."""
+    p = str(mes or "").strip().upper().split()
+    if len(p) != 2 or p[0] not in MESES3:
+        return (9999, 99)
+    try:
+        return (int(p[1]), MESES3.index(p[0]) + 1)
+    except ValueError:
+        return (9999, 99)
+
+
+def extrato_corrido(regs, consumos=(), pagamentos=(), desde=None):
+    """Conta-corrente ATRAVESSANDO os meses — devolve o que falta pagar do boteco sem prazo.
+
+    regs       — as linhas do atleta na aba Pagamentos, de qualquer mês (ordena aqui)
+    consumos   — [(datetime, valor, linha)] do BarConsumo, do período inteiro
+    pagamentos — [(datetime, valor)] dos Pix CONCLUIDA, do período inteiro
+    desde      — (ano, mes) do primeiro mês a considerar; antes disso o saldo entra como
+                 dívida fixa, porque o boteco ainda não existia
+
+    Mesma regra do extrato(): o pagamento abate primeiro o boteco que JÁ EXISTIA quando o
+    dinheiro entrou, depois a dívida antiga, depois mensalidade e multa. A diferença é que
+    a fila do boteco não é zerada na virada do mês.
+
+    Devolve boteco_aberto, boteco_itens, fixo_aberto e credito.
+    """
+    ordenados = sorted(regs, key=lambda r: ordem_mes(r.get("mes")))
+    if desde:
+        ordenados = [r for r in ordenados if ordem_mes(r.get("mes")) >= desde]
+    if not ordenados:
+        return {"boteco_aberto": 0.0, "boteco_itens": [], "fixo_aberto": 0.0, "credito": 0.0}
+
+    if desde:
+        # Pix de cobranca anterior a janela nao entra: ele quitou um mes que nao estamos
+        # recalculando, e aqui viraria credito sobrando abatendo boteco que nao e dele.
+        pagamentos = [p for p in pagamentos
+                      if len(p) < 3 or not p[2] or ordem_mes(p[2]) >= desde]
+    eventos = []
+    for i, reg in enumerate(ordenados):
+        ano, m = ordem_mes(reg.get("mes"))
+        if ano == 9999:
+            continue
+        d1 = datetime.datetime(ano, m, 1)
+        fixo = nf(reg.get("mensalidade")) + nf(reg.get("multa_chu"))
+        if i == 0:
+            # o s_a do primeiro mês é dívida de antes do boteco: entra como fixa.
+            # negativo é crédito trazido, e entra como pagamento no dia 1º.
+            sa = nf(reg.get("s_a"))
+            if sa < 0:
+                eventos.append((d1, 1, -sa))
+            else:
+                fixo += sa
+        # nos meses seguintes o s_a é justamente o que esta função recalcula: ignorar
+        if fixo > 0.009:
+            eventos.append((d1, 0.5, fixo))     # 0.5: entra depois do consumo, antes do Pix
+
+        # parte do valor_pago que não veio de Pix conciliado (dinheiro, acerto, desconto)
+        fim = datetime.datetime(ano + (m == 12), (m % 12) + 1, 1)
+        pix_mes = 0.0
+        for p in pagamentos:
+            mes_pg = p[2] if len(p) > 2 else ""
+            # com o mes da cobranca, casa por ele; sem ele, cai no intervalo de datas
+            dentro = (ordem_mes(mes_pg) == (ano, m)) if mes_pg else (d1 <= p[0] < fim)
+            if dentro:
+                pix_mes += p[1]
+        resid = round(nf(reg.get("valor_pago")) - pix_mes, 2)
+        if resid > 0.009:
+            eventos.append((ts(reg.get("data_pgto")) or d1, 1, resid))
+
+    eventos += [(c[0], 0, c[1], c[2] if len(c) > 2 else None) for c in consumos]
+    eventos += [(p[0], 1, p[1]) for p in pagamentos]
+    eventos = [(e[0], e[1], e[2], e[3] if len(e) > 3 else None) for e in eventos]
+    eventos.sort(key=lambda e: (e[0], e[1]))
+
+    fila, fixo_ab, credito = [], 0.0, 0.0
+    for _, tipo, v, item in eventos:
+        if tipo == 0:                              # consumo
+            rest = v
+            if credito > 0:
+                ab = min(credito, rest)
+                credito -= ab
+                rest -= ab
+            if rest > 0.009:
+                fila.append([rest, item, v])
+        elif tipo == 0.5:                          # mensalidade + multa do mês
+            fixo_ab += v
+        else:                                      # pagamento
+            sobra = v
+            for pend in fila:                      # 1º boteco
+                if sobra <= 0:
+                    break
+                ab = min(sobra, pend[0])
+                pend[0] -= ab
+                sobra -= ab
+            fila = [p for p in fila if p[0] > 0.009]
+            ab = min(sobra, fixo_ab)               # 2º mensalidade/multa/dívida antiga
+            fixo_ab -= ab
+            credito += sobra - ab
+
+    return {"boteco_aberto": round(sum(p[0] for p in fila), 2),
+            "boteco_itens": _itens_em_aberto(fila),
+            "fixo_aberto": round(fixo_ab, 2), "credito": round(credito, 2)}
+
+
+def pagamentos_com_mes(rows):
+    """Como pagamentos_por_atleta, mas guarda o mes DA COBRANCA junto: {ATLETA:
+    [(datetime, valor, mes)]}. O extrato_corrido precisa dele porque a cobranca de um mes
+    costuma ser paga no mes seguinte, e esse Pix nao pode entrar na janela errada."""
+    out = {}
+    for p in rows:
+        if str(p.get("status", "")).strip().upper() != "CONCLUIDA":
+            continue
+        d = ts(p.get("pago_em"))
+        if d is None:
+            continue
+        out.setdefault(str(p.get("atleta", "")).strip().upper(), []).append(
+            (d, nf(p.get("valor")), str(p.get("mes", "")).strip()))
+    for v in out.values():
+        v.sort(key=lambda x: x[0])
+    return out
+
+
 def extrato(reg, consumos=(), pagamentos=(), ini_mes=None):
     """Roda a conta-corrente do mês e devolve o que está realmente em aberto.
 

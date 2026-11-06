@@ -413,13 +413,13 @@ def dados_boteco(T):
             continue
         nome = str(c.get("atleta", "")).strip().title()
         por[nome] = por.get(nome, 0.0) + nf(c.get("total"))
-    ext = extratos_do_mes(T)
-    # quem deve do mês entra na lista mesmo sem ter consumido nesta semana, senão o
-    # devedor da semana passada sumia da tabela de cobrança
-    nomes = set(por) | {n.title() for n, e in ext.items() if e.get("boteco_aberto", 0) > 0}
+    # a dívida vem da conta CORRIDA: quem virou o mês devendo bebida continua devendo
+    # bebida, e o virar_mes joga isso para s_a onde a origem se perderia
+    dev = extratos_corridos(T)
+    nomes = set(por) | {n.title() for n, e in dev.items() if e.get("boteco_aberto", 0) > 0}
     lista = []
     for nome in nomes:
-        e = ext.get(nome.upper())
+        e = dev.get(nome.upper())
         lista.append({"nome": nome, "total": round(por.get(nome, 0.0), 2),
                       "aberto": round(e["boteco_aberto"], 2) if e else 0.0,
                       "itens": (e or {}).get("boteco_itens", [])})
@@ -428,6 +428,27 @@ def dados_boteco(T):
             "janela": ini.strftime("%d/%m"),
             "total": round(sum(por.values()), 2), "atletas": lista,
             "servicos": servicos_da_semana(T, ini)}
+
+
+def extratos_corridos(T):
+    """{ATLETA: conta do boteco sem prazo} — atravessa a virada do mês.
+
+    A conta começa no mês do primeiro consumo registrado: antes disso o boteco não existia
+    e o saldo daquele mês entra como dívida fixa, não como bebida."""
+    cons_rows = T.get("BarConsumo", [])
+    quando = [C._quando_consumo(c) for c in cons_rows]
+    quando = [q for q in quando if q is not None]
+    if not quando:
+        return {}
+    d0 = min(quando)
+    desde = (d0.year, d0.month)
+    cons = C.consumos_por_atleta(cons_rows)
+    pags = C.pagamentos_com_mes(T.get("PixCobrancas", []))
+    regs = {}
+    for r in T.get("Pagamentos", []):
+        regs.setdefault(str(r.get("atleta", "")).strip().upper(), []).append(r)
+    return {a: C.extrato_corrido(rs, cons.get(a, []), pags.get(a, []), desde=desde)
+            for a, rs in regs.items()}
 
 
 def servicos_da_semana(T, ini):
