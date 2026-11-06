@@ -38,7 +38,10 @@ PAUSA = 0.4       # o Apps Script é lento e serializa; não adianta martelar
 
 
 def _chamar(params, tentativas=3):
-    url = RSVP_URL + "?" + urllib.parse.urlencode(params)
+    # quote(safe="") escapa igual ao encodeURIComponent do botao do site: espaco vira %20,
+    # nao '+'. A URL fica identica a que o Apps Script ja recebe desde sempre.
+    url = RSVP_URL + "?" + "&".join(
+        "%s=%s" % (k, urllib.parse.quote(str(v), safe="")) for k, v in params.items())
     erro = None
     for n in range(tentativas):
         try:
