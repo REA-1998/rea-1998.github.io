@@ -494,9 +494,13 @@ def extratos_do_mes(T):
 
 def consumo_em_aberto(T):
     """{Nome: valor} de QUALQUER consumo do boteco ainda não pago — inclusive o do próprio
-    dia (ninguém confirma presença durante o racha, então travar no dia é o certo)."""
+    dia (ninguém confirma presença durante o racha, então travar no dia é o certo).
+
+    Usa o extrato CORRIDO, o mesmo da aba Boteco: dívida de bebida não vence na virada do
+    mês. Antes isso lia só o mês corrente e quem devia há mais tempo era justamente quem
+    escapava — o débito virava s_a e sumia da conta do boteco."""
     return {nome.title(): e["boteco_aberto"]
-            for nome, e in extratos_do_mes(T).items() if e["boteco_aberto"] > 0}
+            for nome, e in extratos_corridos(T).items() if e["boteco_aberto"] > 0}
 
 
 def roster_ativos(T):
@@ -548,6 +552,15 @@ def gerar():
     tmp = OUTPUT.with_suffix(".html.tmp")
     tmp.write_text(html, encoding="utf-8")
     os.replace(tmp, OUTPUT)
+
+    # versao.json: a pagina aberta no celular compara com o que ela carregou e se recarrega
+    # sozinha quando muda. Sem isso, quem tem o atalho na tela de inicio podia ficar meses
+    # com um painel velho (aconteceu em 07/11/2026: viam a pagina de agosto).
+    ver = OUTPUT.parent / "versao.json"
+    vtmp = ver.with_suffix(".json.tmp")
+    vtmp.write_text(json.dumps({"gerado_em": dados["gerado_em"]}, ensure_ascii=False),
+                    encoding="utf-8")
+    os.replace(vtmp, ver)
     print("Painel gerado (Sheets):", OUTPUT)
 
 

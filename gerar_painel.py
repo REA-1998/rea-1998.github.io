@@ -1020,6 +1020,31 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
 
 document.getElementById('rodape').textContent =
   'Atualizado em ' + D.gerado_em + ' · Tesouraria: Mateus';
+
+// --- auto-atualizacao -------------------------------------------------------------
+// O painel e regerado a cada 15 min. Se o navegador servir uma copia velha do HTML, o
+// atleta fica vendo numeros de outro dia sem perceber (em 07/11/2026 varios estavam com
+// a pagina de agosto, sem a aba Boteco). Aqui a propria pagina confere a versao e se
+// recarrega. cache:'no-store' para a checagem nunca sair do cache tambem.
+(function(){
+  var MIN = 5 * 60 * 1000, checando = false;
+  function conferir(){
+    if (checando || !D.gerado_em) return;
+    checando = true;
+    fetch('versao.json?t=' + Date.now(), {cache: 'no-store'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(v){
+        if (v && v.gerado_em && v.gerado_em !== D.gerado_em) location.reload();
+      })
+      .catch(function(){})
+      .then(function(){ checando = false; });
+  }
+  setInterval(conferir, MIN);
+  // o momento que importa no celular: reabrir o atalho depois de horas fechado
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) conferir();
+  });
+})();
 </script>
 </body>
 </html>
