@@ -543,6 +543,182 @@ async def cmd_boteco(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                         disable_web_page_preview=True)
 
 
+# ---------------- presenca (porta de servico da trava do site) ----------------
+def _sp_agora():
+    """Agora em Brasilia. A trava do painel usa esse mesmo fuso, nao o do celular."""
+    import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("America/Sao_Paulo"))
+    except Exception:
+        return datetime.datetime.now()
+
+
+def _na_trava():
+    """Sabado das 13h a meia-noite: a janela em que o site esta fechado."""
+    a = _sp_agora()
+    return a.weekday() == 5 and 13 <= a.hour < 24
+
+
+_roster_cache = (0.0, None)
+
+
+def _roster():
+    """Elenco do site (ativo=sim, joga!=nao), em cache de 10 min.
+
+    Sem o cache, um 'presenca add NOME' fazia tres leituras da aba Atletas e estourava a
+    cota de leitura por minuto do Sheets."""
+    global _roster_cache
+    import time
+    import presenca_auto as PA
+    ts, lista = _roster_cache
+    if lista is None or time.time() - ts > 600:
+        lista = PA.roster()
+        _roster_cache = (time.time(), lista)
+    return lista
+
+
+def _presenca_estado():
+    """(sabado, vou, naovou, sem_resposta) direto do Apps Script."""
+    import presenca_auto as PA
+    d = PA._chamar({"action": "list"})   # o Apps Script nao entra na cota do Sheets
+    if not d.get("ok"):
+        raise RuntimeError("o Apps Script respondeu sem ok: %r" % d)
+    vou = sorted({str(n).strip().title() for n in (d.get("vou") or [])})
+    nao = sorted({str(n).strip().title() for n in (d.get("naovou") or [])})
+    elenco = _roster()
+    respondeu = set(vou) | set(nao)
+    return d.get("sabado", ""), vou, nao, [n for n in elenco if n not in respondeu]
+
+
+def _presenca_gravar(nomes, resposta):
+    """Grava a resposta de cada nome. Devolve [(nome, ok, erro)]."""
+    import time
+    import presenca_auto as PA
+    saida = []
+    for n in nomes:
+        try:
+            r = PA._chamar({"action": "rsvp", "atleta": n, "resposta": resposta})
+            saida.append((n, bool(r.get("ok")), "" if r.get("ok") else repr(r)))
+        except Exception as e:
+            saida.append((n, False, str(e)))
+        time.sleep(0.4)      # o Apps Script serializa; nao adianta martelar
+    return saida
+
+
+def _presenca_nomes(texto):
+    """'wesley, jacare e isack' -> ['Wesley', 'Vinicius', 'Isack'] pelo cadastro/apelidos.
+
+    Devolve (reconhecidos, nao_reconhecidos). Fora do elenco tambem cai em nao_reconhecidos:
+    melhor recusar do que gravar presenca de um nome que o site nao mostra."""
+    m = carregar_alias()
+    elenco = {n.upper(): n for n in _roster()}
+    brutos = [p.strip() for p in _re.split(r"[,;/]| e ", texto, flags=_re.I) if p.strip()]
+    bons, ruins = [], []
+    for b in brutos:
+        nome, achou = _resolver(b, m)
+        if achou and nome.upper() in elenco:
+            if elenco[nome.upper()] not in bons:
+                bons.append(elenco[nome.upper()])
+        else:
+            ruins.append(b)
+    return bons, ruins
+
+
+def _presenca_texto(sabado, vou, nao, pend):
+    t = ["<b>Presenca - sabado %s</b>" % sabado]
+    if _na_trava():
+        t.append("🔒 <i>o site esta travado agora (sabado, 13h a meia-noite)."
+                 " Aqui no bot voce mexe mesmo assim.</i>")
+    t.append("")
+    t.append("✅ <b>Vao (%d)</b>: %s" % (len(vou), ", ".join(vou) if vou else "ninguem"))
+    t.append("❌ <b>Nao vao (%d)</b>: %s" % (len(nao), ", ".join(nao) if nao else "-"))
+    t.append("⏳ <b>Sem resposta (%d)</b>: %s"
+             % (len(pend), ", ".join(pend) if pend else "todos responderam"))
+    t.append("")
+    t.append("<i>presenca add NOME</i> - inclui | <i>presenca tira NOME</i> - tira")
+    return "\n".join(t)
+
+
+async def cmd_presenca(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """'presenca' lista; 'presenca add NOME' inclui; 'presenca tira NOME' tira.
+
+    Aceita apelido ('pastor', 'jacare') e varios nomes de uma vez separados por virgula."""
+    if not so_eu(update):
+        await negar_acesso(update)
+        return
+    txt = (update.message.text or "").strip()
+    resto = _re.sub(r"^/?presen[\u00e7c]a(_add)?\b", "", txt, flags=_re.I).strip(" :=")
+
+    if resto and _re.match(r"^/?presen[\u00e7c]a_add\b", txt, _re.I) \
+            and not _re.match(r"^(\+|[-\u2212]|add|inclui|tira|exclui|remove|fora|furou|n)",
+                              resto, _re.I):
+        resto = "add " + resto        # /presenca_add NOME ja diz a acao no proprio comando
+
+    if not resto:
+        try:
+            s, v, n, p = await asyncio.to_thread(_presenca_estado)
+        except Exception as e:
+            await update.message.reply_text("❌ Nao consegui ler a lista: %s" % e)
+            return
+        await update.message.reply_text(_presenca_texto(s, v, n, p), parse_mode="HTML")
+        return
+
+    # duas formas: simbolo ('+joao', '- joao') ou palavra ('add joao', 'tira joao').
+    # a palavra exige espaco depois, senao 'Vou' engoliria um nome comecando por 'vou'.
+    ADD = r"^(?:\+\s*|(?:add|inclui|incluir|poe|p[\u00f5o]e|vou|volta)\s+)(.+)$"
+    TIRA = (r"^(?:[-\u2212]\s*|(?:tira|tirar|exclui|excluir|remove|remover|fora|furou|"
+            r"n[\u00e3a]o\s*vou|n[\u00e3a]o\s*vai)\s+)(.+)$")
+    m = _re.match(ADD, resto, _re.I)
+    if m:
+        resposta, alvo = "Vou", m.group(1)
+    else:
+        m = _re.match(TIRA, resto, _re.I)
+        if not m:
+            await update.message.reply_text(
+                "Use:\n  • <b>presenca</b> - ver a lista\n"
+                "  • <b>presenca add NOME</b> - incluir\n"
+                "  • <b>presenca tira NOME</b> - tirar\n\n"
+                "Aceita apelido e varios de uma vez: <i>presenca add pastor, jacare</i>",
+                parse_mode="HTML")
+            return
+        resposta, alvo = "Nao vou", m.group(1)
+    if resposta == "Nao vou":
+        resposta = "N\u00e3o vou"        # o Apps Script guarda com acento
+
+    bons, ruins = await asyncio.to_thread(_presenca_nomes, alvo)
+    if not bons:
+        await update.message.reply_text(
+            "Nao reconheci nenhum nome do elenco em %r.\n"
+            "Confere a grafia - eu aceito apelido (pastor, jacare, P10...)." % alvo.strip())
+        return
+
+    await update.message.reply_text(
+        "%s %s..." % ("✅ Incluindo" if resposta == "Vou" else "❌ Tirando", ", ".join(bons)))
+    res = await asyncio.to_thread(_presenca_gravar, bons, resposta)
+    falhou = [(n, e) for n, ok, e in res if not ok]
+
+    try:
+        s, v, n, p = await asyncio.to_thread(_presenca_estado)
+        corpo = _presenca_texto(s, v, n, p)
+    except Exception as e:
+        corpo = "(gravei, mas nao consegui reler a lista: %s)" % e
+
+    cab = []
+    ok = [n for n, k, _ in res if k]
+    if ok:
+        cab.append("✅ <b>%s</b> entrou na lista de quem vai." % ", ".join(ok)
+                   if resposta == "Vou"
+                   else "❌ <b>%s</b> saiu da lista (marcado como nao vou)." % ", ".join(ok))
+        if _na_trava():
+            cab.append("<i>(feito com o site travado - so pelo bot da para isso)</i>")
+    if falhou:
+        cab.append("❌ Nao gravei: %s" % "; ".join("%s (%s)" % (n, e[:60]) for n, e in falhou))
+    if ruins:
+        cab.append("⚠️ Nao reconheci: %s" % ", ".join(ruins))
+    await update.message.reply_text("\n".join(cab) + "\n\n" + corpo, parse_mode="HTML")
+
+
 def _kb_times():
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("📣 Publicar no site", callback_data="times_ok"),
@@ -608,7 +784,10 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "  • <b>boteco</b> — consumo da semana, quem deve, resenha e "
         "estoque (<i>boteco mes</i> traz o mês inteiro)\n"
         "  • <b>2times</b> / <b>3times</b> — montar os times dos confirmados\n"
-        "  • <b>desfazer NOME</b> — apagar o último lançamento do boteco",
+        "  • <b>desfazer NOME</b> — apagar o último lançamento do boteco\n"
+        "  • <b>presença</b> — ver a lista do sábado; "
+        "<i>presença add NOME</i> inclui e <i>presença tira NOME</i> tira "
+        "(funciona mesmo com o site travado das 13h à meia-noite)",
         parse_mode="HTML")
 
 
@@ -644,6 +823,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return await cmd_desfazer(update, ctx)
     if _re.match(r"^/?(boteco|bar)\b", txt.lower()):
         return await cmd_boteco(update, ctx)
+    if _re.match(r"^/?presen[çc]a\b", txt.lower()):
+        return await cmd_presenca(update, ctx)
     d = pendentes.get(cid)
     if not d and cid in pendentes_times:
         # ajuste dos times por chat
@@ -752,6 +933,8 @@ def main():
     app.add_handler(CommandHandler("desfazer", cmd_desfazer))
     app.add_handler(CommandHandler("boteco", cmd_boteco))
     app.add_handler(CommandHandler("bar", cmd_boteco))
+    app.add_handler(CommandHandler("presenca", cmd_presenca))
+    app.add_handler(CommandHandler("presenca_add", cmd_presenca))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_button))
