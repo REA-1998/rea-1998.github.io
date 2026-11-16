@@ -513,8 +513,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
       Confirme até as <b>13h de sábado</b>. Às 13h a lista fecha: quem não respondeu entra
-      como “não vou” e <b>ninguém mais mexe até as 19h</b> — é com essa lista que os times
-      são sorteados. Às 19h abre de novo, já para o sábado seguinte.
+      como “não vou” e <b>ninguém mais mexe até o fim do sábado</b> — é com essa lista que
+      os times são sorteados. No domingo abre de novo, já para o sábado seguinte.
       Quem confirma e falta paga multa de R$ 20.
       Quem está devendo o mês anterior não confirma a partir do 2º sábado do mês.</p>
   </section>
@@ -753,8 +753,12 @@ function carregarPresenca(){
 // Por que existe: as 13h o presenca_auto marca "Nao vou" para quem nao respondeu e os times
 // sao sorteados em cima disso. Em 14/11/2026 varios confirmaram DEPOIS do sorteio e os times
 // ficaram errados. A hora e sempre a de Brasilia, nao a do celular - celular com fuso trocado
-// nao fura a trava.
-const TRAVA_INI = 13, TRAVA_FIM = 19;
+// nao fura a trava. A janela vai das 13h a meia-noite: reabre junto com a virada da lista
+// no Apps Script, entao quando libera ja e para o sabado seguinte.
+// TRAVA_FIM = 24: vai ate a meia-noite, porque e so na virada do domingo que o Apps
+// Script passa a apontar o sabado seguinte. Soltar as 19h gravava na lista do sabado
+// que ja tinha acontecido, e a resposta sumia na virada.
+const TRAVA_INI = 13, TRAVA_FIM = 24;
 function agoraSP(){
   try{
     const p = new Intl.DateTimeFormat('en-GB', {timeZone:'America/Sao_Paulo',
@@ -769,8 +773,8 @@ function agoraSP(){
 function motivoTrava(){
   const a = agoraSP();
   if(!a.sabado || a.h < TRAVA_INI || a.h >= TRAVA_FIM) return '';
-  return 'Lista fechada. Às ' + TRAVA_INI + 'h a presença é travada e os times são sorteados '
-       + 'com quem estava confirmado. Abre de novo às ' + TRAVA_FIM + 'h, já para o próximo sábado.';
+  return 'Lista fechada. Às ' + TRAVA_INI + 'h a presença trava e os times são sorteados '
+       + 'com quem estava confirmado. Volta a abrir no domingo, já para o próximo sábado.';
 }
 function pintarTrava(){
   const m = motivoTrava(), av = document.getElementById('rsvp-trava');
