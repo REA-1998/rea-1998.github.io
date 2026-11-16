@@ -450,6 +450,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   .bt-vou{background:var(--verde)}.bt-nao{background:#9aa4ab}
   .rsvp-msg{margin-top:9px;font-size:.82rem;font-weight:700;min-height:18px;text-align:center}
   .rsvp-msg.ok{color:var(--verde)}.rsvp-msg.erro{color:var(--vermelho)}
+  .rsvp-trava{background:#fdecea;border:1px solid #f0b8b1;color:#9b2c20;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:.82rem;font-weight:800;text-align:center;line-height:1.35}
+  .rsvp-btns button:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
   .rsvp-listas{display:flex;gap:10px;flex-wrap:wrap}
   .rsvp-col{flex:1;min-width:140px;background:#fff;border-radius:12px;padding:10px 12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
   .rsvp-col h3{font-size:.85rem;margin-bottom:6px}
@@ -493,6 +495,7 @@ TEMPLATE = r"""<!DOCTYPE html>
         <button id="rsvp-nao" class="bt-nao">❌ Não vou</button>
       </div>
       <div class="rsvp-msg" id="rsvp-msg"></div>
+      <div class="rsvp-trava" id="rsvp-trava" style="display:none"></div>
     </div>
     <div class="rsvp-listas">
       <div class="rsvp-col">
@@ -509,7 +512,10 @@ TEMPLATE = r"""<!DOCTYPE html>
       </div>
     </div>
     <p style="font-size:.72rem;color:#888;margin-top:10px">
-      Confirme até as <b>13h de sábado</b>. Quem confirma e falta paga multa de R$ 20.
+      Confirme até as <b>13h de sábado</b>. Às 13h a lista fecha: quem não respondeu entra
+      como “não vou” e <b>ninguém mais mexe até as 19h</b> — é com essa lista que os times
+      são sorteados. Às 19h abre de novo, já para o sábado seguinte.
+      Quem confirma e falta paga multa de R$ 20.
       Quem está devendo o mês anterior não confirma a partir do 2º sábado do mês.</p>
   </section>
 
@@ -743,8 +749,40 @@ function pintarLista(d){
 function carregarPresenca(){
   fetch(RSVP_URL+'?action=list').then(r=>r.json()).then(pintarLista).catch(()=>rsvpMsg('',''));
 }
+// trava de horario: das 13h as 19h de sabado a lista esta fechada.
+// Por que existe: as 13h o presenca_auto marca "Nao vou" para quem nao respondeu e os times
+// sao sorteados em cima disso. Em 14/11/2026 varios confirmaram DEPOIS do sorteio e os times
+// ficaram errados. A hora e sempre a de Brasilia, nao a do celular - celular com fuso trocado
+// nao fura a trava.
+const TRAVA_INI = 13, TRAVA_FIM = 19;
+function agoraSP(){
+  try{
+    const p = new Intl.DateTimeFormat('en-GB', {timeZone:'America/Sao_Paulo',
+      weekday:'short', hour:'2-digit', minute:'2-digit', hour12:false}).formatToParts(new Date());
+    const g = t => (p.find(x=>x.type===t)||{}).value;
+    return {sabado: g('weekday')==='Sat', h: parseInt(g('hour'),10)};
+  }catch(e){                       // navegador sem suporte a timeZone: cai no relogio local
+    const d = new Date();
+    return {sabado: d.getDay()===6, h: d.getHours()};
+  }
+}
+function motivoTrava(){
+  const a = agoraSP();
+  if(!a.sabado || a.h < TRAVA_INI || a.h >= TRAVA_FIM) return '';
+  return 'Lista fechada. Às ' + TRAVA_INI + 'h a presença é travada e os times são sorteados '
+       + 'com quem estava confirmado. Abre de novo às ' + TRAVA_FIM + 'h, já para o próximo sábado.';
+}
+function pintarTrava(){
+  const m = motivoTrava(), av = document.getElementById('rsvp-trava');
+  document.getElementById('rsvp-vou').disabled = !!m;
+  document.getElementById('rsvp-nao').disabled = !!m;
+  av.textContent = m ? '🔒 ' + m : '';
+  av.style.display = m ? 'block' : 'none';
+}
 function enviarRSVP(resp){
   const nome = selNome.value;
+  const trava = motivoTrava();
+  if(trava){ pintarTrava(); rsvpMsg('🔒 ' + trava, 'erro'); return; }
   if(!nome){ rsvpMsg('Escolha seu nome primeiro 😉','erro'); return; }
   localStorage.setItem('rea_nome', nome);
   // boteco: consumo de sábados anteriores em aberto trava a confirmação (vence em 1 semana)
@@ -765,6 +803,9 @@ function enviarRSVP(resp){
 document.getElementById('rsvp-vou').onclick=()=>enviarRSVP('Vou');
 document.getElementById('rsvp-nao').onclick=()=>enviarRSVP('Não vou');
 carregarPresenca();
+pintarTrava();
+setInterval(pintarTrava, 30000);   // pega a virada das 13h e das 19h com a aba aberta
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pintarTrava(); });
 
 // atalho Financeiro -> aba Pagar
 document.getElementById('btn-ir-pagar').onclick = ()=>{
