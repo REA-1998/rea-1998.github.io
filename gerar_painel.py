@@ -566,13 +566,13 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <section id="estat">
     <h2>📊 Estatísticas 2026</h2>
-    <table><thead><tr><th>Atleta</th><th class="num">Vit./racha</th>
+    <table><thead><tr><th>Atleta</th><th class="num">Pts Vit/racha</th>
       <th class="num">Pts Vit.</th><th class="num">Pres.</th>
       <th class="num">Pontual</th><th class="num">Cartões</th><th class="num">🏅Cheia</th>
       <th class="num">🎈Murcha</th><th class="num">Fiel</th></tr></thead>
       <tbody id="tb-estat"></tbody></table>
     <p style="font-size:.72rem;color:#888;margin-top:8px">
-      <b>Vit./racha</b> = pontos de vitória divididos pelas presenças — quanto o atleta
+      <b>Pts Vit/racha</b> = pontos de vitória divididos pelas presenças — quanto o atleta
       rende por sábado que vem, independente de ter chegado no horário.
       <b>Pts Vit.</b> = total no ano (vitória vale 2, empate 1).
       Atleta Fiel = presente nos últimos 8 sábados (só é substituído se quiser).</p>

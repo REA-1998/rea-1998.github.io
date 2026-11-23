@@ -25,9 +25,11 @@ from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials
 
 # padrão por categoria, usado quando a linha não tem margem própria
-MARGEM_PADRAO = {"Cerveja": 0.15, "Refri": 0.15, "Bebida": 0.15, "Salgado": 0.40,
+# Bebida foi de 15% para 20% em 23/11/2026: a contagem fisica de 21/11 acusou 22
+# unidades a menos (R$ 126,10 a custo) e o Mateus optou por cobrir o rombo na margem.
+MARGEM_PADRAO = {"Cerveja": 0.20, "Refri": 0.20, "Bebida": 0.20, "Salgado": 0.40,
                  "Resenha": 0.0}   # resenha e rateio de custo, nao tem margem
-PADRAO_GERAL = 0.15
+PADRAO_GERAL = 0.20
 
 
 def nf(x):
