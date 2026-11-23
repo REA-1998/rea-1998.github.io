@@ -289,6 +289,10 @@ def data_iso(v):
 
 
 def dados_ranking(T):
+    # quem saiu do racha (ativo=nao) nao aparece em ranking nenhum - mesma regra do
+    # roster_ativos. Sem isto, o historico deles segue na Artilharia e nas Estatisticas.
+    ativos_rk = {str(a.get("nome", "")).strip().upper() for a in T.get("Atletas", [])
+                 if str(a.get("ativo", "")).strip().lower() == "sim"}
     craque = collections.defaultdict(float)
     arti = collections.defaultdict(float)
     vit = collections.defaultdict(float)
@@ -303,6 +307,8 @@ def dados_ranking(T):
         a = str(r["atleta"]).strip().upper()
         d = data_iso(r["data"])
         if not a or d is None:      # linha inválida não derruba o painel
+            continue
+        if ativos_rk and a not in ativos_rk:   # saiu do racha
             continue
         atletas.add(a)
         pp, g, vp, bp, cp = (nf(r["presenca_pts"]), nf(r["gols"]), nf(r["vitoria_pts"]),
