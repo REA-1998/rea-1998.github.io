@@ -15,7 +15,8 @@ REGRAS (rev. 26/10/2026 v4):
     máxima) E soma dos níveis dos RESERVAS também equilibrada (2º critério).
  5) GOLEIROS entram DEPOIS, como compensação: o melhor goleiro (Alexandre) vai pro time
     com MENOR soma de linha titular; empates são SORTEADOS.
- 6) Egnaldo: o Mateus decide no comando ("egnaldo linha" ou "egnaldo gol"). Sem escolha,
+ 6) Goleiros que tambem jogam na linha (Egnaldo, Lucas): o Mateus decide no comando
+    ("egnaldo linha", "lucas gol", ou os dois juntos). Sem escolha,
     automático: ordem de gol por nível (Alexandre > Iroshi > Egnaldo); goleiro que sobrar
     joga na linha como ZAGUEIRO com NIVEL_GK_NA_LINHA (40), por não ser jogador de linha;
     goleiro que faltar, o próximo assume. EXCEÇÃO: quem está em MESMO_NIVEL_NA_LINHA
@@ -45,13 +46,23 @@ POS_GK_NA_LINHA = "ZAGUEIRO"        # goleiro que vai pra linha entra como zague
 NIVEL_GK_NA_LINHA = 40              # ... e cai pra este nivel, por nao ser jogador de linha
 # Excecao: quem joga igual nas duas funcoes mantem o proprio nivel (Mateus, 22/10/2026).
 MESMO_NIVEL_NA_LINHA = {"EGNALDO"}
+# Goleiro que tem nivel PROPRIO de linha, diferente do nivel de gol (Mateus, 23/11/2026):
+# o Lucas e 7 no gol e 35 na zaga. Tem prioridade sobre MESMO_NIVEL_NA_LINHA.
+NIVEL_NA_LINHA = {"LUCAS": 35}
 
 
 def _para_linha(j, avisos, motivo):
-    """Tira o goleiro do gol e manda pra zaga. Quem joga igual nas duas funcoes
-    (Egnaldo) mantem o proprio nivel; os outros caem para NIVEL_GK_NA_LINHA."""
+    """Tira o goleiro do gol e manda pra zaga, com o nivel que ele vale NA LINHA.
+
+    Tres casos, nesta ordem: quem tem nivel proprio de linha (NIVEL_NA_LINHA, caso do
+    Lucas) usa esse; quem joga igual nas duas funcoes (MESMO_NIVEL_NA_LINHA, caso do
+    Egnaldo) mantem o nivel do gol; o resto cai para NIVEL_GK_NA_LINHA, por nao ser
+    jogador de linha."""
+    k = _chave(j["nome"])
     j["pos"] = POS_GK_NA_LINHA
-    if _chave(j["nome"]) not in MESMO_NIVEL_NA_LINHA:
+    if k in NIVEL_NA_LINHA:
+        j["nivel"] = NIVEL_NA_LINHA[k]
+    elif k not in MESMO_NIVEL_NA_LINHA:
         j["nivel"] = NIVEL_GK_NA_LINHA
     avisos.append(motivo)
 
@@ -132,8 +143,12 @@ def _ordenar_exibicao(t):
                                      -a["nivel"], a["nome"]))
 
 
-def montar(confirmados, T, n_times=None, egnaldo=None):
-    """egnaldo: None (automático), 'linha' ou 'gol' — decisão do Mateus no comando."""
+def montar(confirmados, T, n_times=None, egnaldo=None, gk_escolha=None):
+    """gk_escolha: {"EGNALDO": "linha", "LUCAS": "gol", ...} — decisão do Mateus no
+    comando, para os goleiros que também jogam na linha. Sem escolha, vale a regra
+    automática (os de maior nível ficam no gol).
+
+    egnaldo: forma antiga, equivale a gk_escolha={"EGNALDO": valor}."""
     rnd = random.Random()  # sem semente fixa: cada rodada pode variar (regra 8)
     cad = _cadastro(T)
     fiel = _fiel_pontos(T)
@@ -158,13 +173,21 @@ def montar(confirmados, T, n_times=None, egnaldo=None):
 
     # ---- goleiros ----
     gks_all = sorted([j for j in jogadores if j["goleiro"]], key=lambda j: (-j["nivel"], j["nome"]))
-    egn = next((j for j in gks_all if _chave(j["nome"]) == "EGNALDO"), None)
-    if egnaldo == "linha" and egn:
-        gks_all.remove(egn)
-        _para_linha(egn, avisos, "Egnaldo na LINHA (zagueiro, mesmo nível) — sua escolha.")
-    if egnaldo == "gol" and egn and egn in gks_all:
-        sel = [egn] + [g for g in gks_all if g is not egn][:max(0, k - 1)]
-        avisos.append("Egnaldo no GOL — sua escolha.")
+    escolha = {_chave(n): str(v).strip().lower()
+               for n, v in (gk_escolha or {}).items() if v}
+    if egnaldo:                       # forma antiga da chamada
+        escolha.setdefault("EGNALDO", str(egnaldo).strip().lower())
+    # quem o Mateus mandou pra linha sai do rodizio de goleiros
+    for j in list(gks_all):
+        if escolha.get(_chave(j["nome"])) == "linha":
+            gks_all.remove(j)
+            _para_linha(j, avisos,
+                        f"{j['nome'].title()} na LINHA (zagueiro) — sua escolha.")
+    # quem ele mandou pro gol entra primeiro, mesmo sendo de nivel menor
+    forcados = [j for j in gks_all if escolha.get(_chave(j["nome"])) == "gol"]
+    if forcados:
+        sel = (forcados + [g for g in gks_all if g not in forcados])[:k]
+        avisos.append(", ".join(j["nome"].title() for j in forcados) + " no GOL — sua escolha.")
     else:
         sel = gks_all[:k]
     for j in gks_all:

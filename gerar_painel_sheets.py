@@ -337,11 +337,15 @@ def dados_ranking(T):
     for a in sorted(atletas):
         if craque.get(a, 0) == 0 and presq.get(a, 0) == 0:
             continue
-        estat.append({"nome": a.title(), "vitorias": int(vit.get(a, 0)),
-                      "presencas": int(presq.get(a, 0)), "pontualidade": int(presp.get(a, 0)),
+        pres = int(presq.get(a, 0))
+        pts = int(vit.get(a, 0))
+        # media por racha: divide pela PRESENCA (quem veio), nao pela pontualidade
+        estat.append({"nome": a.title(), "media_vit": round(pts / pres, 1) if pres else 0.0,
+                      "vitorias": pts,
+                      "presencas": pres, "pontualidade": int(presp.get(a, 0)),
                       "cartoes": int(cart.get(a, 0)), "cheia": int(cheia.get(a, 0)),
                       "murcha": int(murcha.get(a, 0)), "fiel": a.title() in fieis})
-    estat.sort(key=lambda x: -x["presencas"])
+    estat.sort(key=lambda x: (-x["media_vit"], -x["presencas"], x["nome"]))
     return {"craque": ranking(craque), "artilharia": ranking(arti), "estatisticas": estat,
             "fieis": sorted(fieis), "fiel_tab": fiel_tab}
 

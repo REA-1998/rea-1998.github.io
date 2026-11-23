@@ -566,11 +566,15 @@ TEMPLATE = r"""<!DOCTYPE html>
 
   <section id="estat">
     <h2>📊 Estatísticas 2026</h2>
-    <table><thead><tr><th>Atleta</th><th class="num">Pts Vit.</th><th class="num">Pres.</th>
+    <table><thead><tr><th>Atleta</th><th class="num">Vit./racha</th>
+      <th class="num">Pts Vit.</th><th class="num">Pres.</th>
       <th class="num">Pontual</th><th class="num">Cartões</th><th class="num">🏅Cheia</th>
       <th class="num">🎈Murcha</th><th class="num">Fiel</th></tr></thead>
       <tbody id="tb-estat"></tbody></table>
     <p style="font-size:.72rem;color:#888;margin-top:8px">
+      <b>Vit./racha</b> = pontos de vitória divididos pelas presenças — quanto o atleta
+      rende por sábado que vem, independente de ter chegado no horário.
+      <b>Pts Vit.</b> = total no ano (vitória vale 2, empate 1).
       Atleta Fiel = presente nos últimos 8 sábados (só é substituído se quiser).</p>
   </section>
 
@@ -709,7 +713,9 @@ document.getElementById('tb-fiel').innerHTML = D.ranking.fiel_tab.map(x=>`
 
 // estatísticas
 document.getElementById('tb-estat').innerHTML = D.ranking.estatisticas.map(x=>`
-  <tr><td>${x.nome}</td><td class="num">${x.vitorias}</td><td class="num">${x.presencas}</td>
+  <tr><td>${x.nome}</td>
+  <td class="num"><b>${(x.media_vit||0).toFixed(1).replace('.',',')}</b></td>
+  <td class="num">${x.vitorias}</td><td class="num">${x.presencas}</td>
   <td class="num">${x.pontualidade}</td><td class="num">${x.cartoes||''}</td>
   <td class="num">${x.cheia||''}</td><td class="num">${x.murcha||''}</td>
   <td class="num">${x.fiel?'<span class=fiel>✔</span>':''}</td></tr>`).join('');

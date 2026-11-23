@@ -168,6 +168,38 @@ def _resolver(raw: str, m: dict):
     return str(raw).strip().upper(), False
 
 
+PTS_VITORIA, PTS_EMPATE = 2, 1
+# goleiros que tambem jogam na linha e por isso tem comando proprio no /times
+GOLEIROS_DE_LINHA = ("egnaldo", "lucas")
+
+
+def _pontos_do_quadro(d: dict) -> dict:
+    """Recalcula resultado_por_time a partir do quadro V/E/D, ignorando a conta da IA.
+
+    Em 21/11/2026 a IA devolveu AZUL=8 e AMARELO=11 -- os gols de cada time, nao os
+    pontos (o certo era 2V+3E=7 e 3V+3E=9). O quadro ela le certo; a multiplicacao, nao.
+    Quando os dois discordam, a divergencia vai para 'incertezas' e aparece no resumo que
+    o Mateus confere antes de gravar."""
+    quadro = d.get("quadro") or []
+    if not quadro:
+        return d
+    antes = dict(d.get("resultado_por_time") or {})
+    novo = {}
+    for q in quadro:
+        t = str(q.get("time", "")).strip().upper()
+        if t:
+            novo[t] = int(_nfb(q.get("v")) * PTS_VITORIA + _nfb(q.get("e")) * PTS_EMPATE)
+    if not novo:
+        return d
+    d["resultado_por_time"] = novo
+    difs = ["%s: a IA disse %s, o quadro da %d" % (t, antes[t], novo[t])
+            for t in sorted(novo) if t in antes and int(_nfb(antes[t])) != novo[t]]
+    if difs:
+        d.setdefault("incertezas", []).append(
+            "✔️ pontos recalculados do quadro V/E/D — " + "; ".join(difs))
+    return d
+
+
 def normalizar_dados(d: dict) -> dict:
     """Converte todos os nomes lidos para os nomes do cadastro; flag os não reconhecidos."""
     m = carregar_alias()
@@ -196,7 +228,7 @@ def normalizar_dados(d: dict) -> dict:
     if nao:
         d.setdefault("incertezas", []).insert(
             0, "⚠️ NÃO reconheci no cadastro (confira): " + ", ".join(sorted(set(nao))))
-    return d
+    return _pontos_do_quadro(d)
 
 
 def extrair_sumula(img_bytes: bytes, media_type: str) -> dict:
@@ -376,7 +408,7 @@ def buscar_confirmados():
     return d.get("sabado", ""), list(d.get("vou") or [])
 
 
-def montar_times_do_dia(n_times=None, lista=None, egnaldo=None):
+def montar_times_do_dia(n_times=None, lista=None, gk_escolha=None):
     import gerar_painel_sheets as S
     T = S.carregar()
     if lista:
@@ -387,7 +419,7 @@ def montar_times_do_dia(n_times=None, lista=None, egnaldo=None):
             pass
     else:
         sabado, nomes = buscar_confirmados()
-    res = M.montar(nomes, T, n_times, egnaldo=egnaldo)
+    res = M.montar(nomes, T, n_times, gk_escolha=gk_escolha)
     return sabado, res
 
 
@@ -742,22 +774,25 @@ async def cmd_times(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tl = texto.lower()
     m = _re.search(r"([234])\s*times|times\s*([234])", tl)
     n_times = int(m.group(1) or m.group(2)) if m else None
-    egnaldo = None
-    if "egnaldo" in tl:
-        if "linha" in tl:
-            egnaldo = "linha"
-        elif "gol" in tl:
-            egnaldo = "gol"
+    # "egnaldo linha", "lucas no gol", "2times egnaldo linha lucas linha" — cada nome
+    # pega a palavra que vem DEPOIS dele, entao os dois podem ir no mesmo comando.
+    escolha = {}
+    for g in GOLEIROS_DE_LINHA:
+        mg = _re.search(g + r"\s*(?:no|na|=|:)?\s*(gol|linha)", tl)
+        if mg:
+            escolha[g.upper()] = mg.group(1)
     if not n_times:
         await update.message.reply_text(
             "Quantos times? Me manda: *2times*, *3times* ou *4times*.\n"
-            "Opções: `2times egnaldo linha` ou `2times egnaldo gol` (senão decido pela regra); "
+            "Opções: `2times egnaldo linha`, `2times lucas gol`, ou os dois juntos "
+            "(`2times egnaldo linha lucas linha`) — sem isso eu decido pela regra; "
             "lista manual: `3times: Pagode, Walter, ...`")
         return
-    extra = f" (Egnaldo: {egnaldo})" if egnaldo else ""
+    extra = (" (" + ", ".join(f"{n.title()}: {v}" for n, v in sorted(escolha.items())) + ")"
+             if escolha else "")
     await update.message.reply_text(f"🧮 Buscando confirmados e montando {n_times} times{extra}...")
     try:
-        sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista, egnaldo)
+        sabado, res = await asyncio.to_thread(montar_times_do_dia, n_times, lista, escolha)
     except Exception as e:
         await update.message.reply_text(f"❌ Não consegui montar: {e}")
         return
@@ -783,7 +818,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Comandos:\n"
         "  • <b>boteco</b> — consumo da semana, quem deve, resenha e "
         "estoque (<i>boteco mes</i> traz o mês inteiro)\n"
-        "  • <b>2times</b> / <b>3times</b> — montar os times dos confirmados\n"
+        "  • <b>2times</b> / <b>3times</b> — montar os times dos confirmados "
+        "(<i>2times egnaldo linha lucas gol</i> para escolher onde eles jogam)\n"
         "  • <b>desfazer NOME</b> — apagar o último lançamento do boteco\n"
         "  • <b>presença</b> — ver a lista do sábado; "
         "<i>presença add NOME</i> inclui e <i>presença tira NOME</i> tira "
