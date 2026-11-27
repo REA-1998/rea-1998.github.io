@@ -34,6 +34,7 @@ import pix_webhook as W
 MESES = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 MIN_VALOR = 1.00      # abaixo disso não vale um Pix
 MAX_ACOES = 25        # trava de segurança: se precisar mexer em mais que isso, algo está errado
+MAX_VELHAS = 60       # cancelar cobranca velha é a direção segura, então o limite é maior
 IDADE_MIN = 120       # segundos — não mexe em cobrança recém-criada (corrida com o webhook)
 
 
@@ -81,9 +82,12 @@ def ajustar_consumo(sh, mes, ini_mes, dry=False):
 
 
 def planejar(sh, mes, ini_mes):
-    """Devolve (cancelar, criar) sem tocar em nada."""
+    """Devolve (pc, velhas, cancelar, criar) sem tocar em nada.
+
+    `velhas` sao cobrancas ATIVAS de meses ANTERIORES — ver planejar_velhas()."""
     pc = sh.worksheet("PixCobrancas")
     pix_rows = pc.get_all_records()
+    pag_rows = sh.worksheet("Pagamentos").get_all_records()
     cons = C.consumos_por_atleta(sh.worksheet("BarConsumo").get_all_records(), ini=ini_mes)
     pgs = C.pagamentos_por_atleta(pix_rows, ini=ini_mes)
 
@@ -99,7 +103,7 @@ def planejar(sh, mes, ini_mes):
             (i, C.nf(p.get("valor")), str(p.get("txid")), nova_demais))
 
     cancelar, criar = [], []
-    for r in sh.worksheet("Pagamentos").get_all_records():
+    for r in pag_rows:
         if str(r.get("mes", "")).strip().upper() != mes:
             continue
         nome = str(r.get("atleta", "")).strip().upper()
@@ -114,7 +118,38 @@ def planejar(sh, mes, ini_mes):
                 cancelar.append((nome, a[0], a[1], a[2]))
         if not certa and devido >= MIN_VALOR:
             criar.append((nome, devido))
-    return pc, cancelar, criar
+    return pc, planejar_velhas(pix_rows, pag_rows, mes), cancelar, criar
+
+
+def planejar_velhas(pix_rows, pag_rows, mes):
+    """Cobrancas ATIVAS de meses ANTERIORES — todas erradas, por construcao.
+
+    Na virada do mes o que ficou em aberto vira s_a da linha nova e passa a ser cobrado
+    junto com a mensalidade do mes. O QR do mes passado nao e cancelado por ninguem e
+    continua valido na Efi, cobrando um valor que ja nao existe. Em 27/11/2026 oito
+    atletas tinham duas cobrancas ativas; a do Paulinho era de R$ 100,88 que ele ja
+    quitara em 14/11.
+
+    So cancela quem JA TEM linha no mes corrente. Sem linha, a virada pode nao ter
+    acontecido para ele e cancelar deixaria o atleta sem forma de pagar — nesse caso
+    avisa e nao mexe.
+    """
+    com_linha = {str(r.get("atleta", "")).strip().upper() for r in pag_rows
+                 if str(r.get("mes", "")).strip().upper() == mes}
+    velhas = []
+    for i, p in enumerate(pix_rows, start=2):
+        if str(p.get("status", "")).strip().upper() != "ATIVA":
+            continue
+        m = str(p.get("mes", "")).strip().upper()
+        if not m or m == mes:
+            continue
+        nome = str(p.get("atleta", "")).strip().upper()
+        if nome not in com_linha:
+            print(f"  ATENCAO: {nome} tem cobranca ATIVA de {m} e nenhuma linha em {mes} "
+                  f"— nao cancelei; confira a virada do mes")
+            continue
+        velhas.append((f"{nome} ({m})", i, C.nf(p.get("valor")), str(p.get("txid"))))
+    return velhas
 
 
 def aplicar(sh, pc, cancelar, criar):
@@ -160,9 +195,20 @@ def main():
     sh = sheets()
     for nome, antes, agora in ajustar_consumo(sh, mes, ini_mes, dry):
         print(f"[consumo] {nome}: {antes:.2f} -> {agora:.2f} (recalculado do BarConsumo)")
-    pc, cancelar, criar = planejar(sh, mes, ini_mes)
+    pc, velhas, cancelar, criar = planejar(sh, mes, ini_mes)
+    if velhas:
+        print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] "
+              f"{len(velhas)} cobranca(s) ATIVA(s) de meses anteriores — cancelando:")
+        for nome, _, valor, txid in velhas:
+            print(f"  - velha    {nome:<18} R$ {valor:>8.2f}  {txid}")
+        if len(velhas) > MAX_VELHAS:
+            print(f"!! {len(velhas)} passa do limite de {MAX_VELHAS}. Nao vou mexer sozinho.")
+            velhas = []
+        elif not dry:
+            print("  canceladas:", aplicar(sh, pc, velhas, []))
     if not cancelar and not criar:
-        print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] cobrancas de {mes}: tudo certo")
+        if not velhas:
+            print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] cobrancas de {mes}: tudo certo")
         return
     print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] {mes}: "
           f"{len(cancelar)} a cancelar, {len(criar)} a criar")
