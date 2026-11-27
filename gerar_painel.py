@@ -867,7 +867,10 @@ function mostrarCobranca(){
   const btn = document.getElementById('btn-copia-pix');
   if(it.pago){
     qr.style.display='none'; btn.style.display='none';
-    ok.innerHTML = '✅ <b>Pago!</b> Tudo em dia.';
+    ok.innerHTML = it.credito > 0
+      ? '✅ <b>Tudo em dia!</b> E você ainda tem <b>R$ ' + fmt(it.credito)
+        + '</b> de crédito — já abatido das próximas mensalidades e do boteco.'
+      : '✅ <b>Pago!</b> Tudo em dia.';
   } else if(it.sem_cobranca){
     // sem QR emitido (ex.: isento que consumiu) -> gera na hora
     qr.style.display='none'; btn.style.display='none';

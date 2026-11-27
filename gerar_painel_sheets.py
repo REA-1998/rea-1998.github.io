@@ -232,8 +232,10 @@ def dados_cobrancas(T):
         desatualizado = (not pago) and (not cob_ativa or
                                         (devido is not None and abs(devido - valor_cob) > 0.01))
         valor_real = devido if devido is not None else valor_cob
+        bruto = devidos.get(atleta_up)
         itens.append({"nome": str(r.get("atleta", "")).strip().title(),
-                      "valor": f"{valor_real:.2f}".replace(".", ","),
+                      "valor": f"{max(0.0, valor_real):.2f}".replace(".", ","),
+                      "credito": round(-bruto, 2) if bruto is not None and bruto < -0.009 else 0,
                       "copia": "" if desatualizado else copia,
                       "qr": "" if desatualizado else qr_uri,
                       "pago": pago, "sem_cobranca": desatualizado})
@@ -249,10 +251,13 @@ def dados_cobrancas(T):
             continue
         devido = (nf(p.get("s_a")) + nf(p.get("mensalidade")) + nf(p.get("multa_chu"))
                   + nf(p.get("consumo")) - nf(p.get("valor_pago")))
-        if devido <= 0.009:
-            continue
-        itens.append({"nome": nome_up.title(), "valor": f"{devido:.2f}".replace(".", ","),
-                      "copia": "", "qr": "", "pago": False, "sem_cobranca": True})
+        # quem esta quitado ou com credito tambem entra na lista: senao o atleta abre a
+        # aba Pagar, nao acha o proprio nome e nao tem como saber que esta em dia.
+        pago = devido <= 0.009
+        itens.append({"nome": nome_up.title(),
+                      "valor": f"{max(0.0, devido):.2f}".replace(".", ","),
+                      "credito": round(-devido, 2) if devido < -0.009 else 0,
+                      "copia": "", "qr": "", "pago": pago, "sem_cobranca": not pago})
     itens.sort(key=lambda x: x["nome"])
     return {"mes": mes, "itens": itens}
 
