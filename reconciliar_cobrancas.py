@@ -13,10 +13,15 @@ Uso manual:  python reconciliar_cobrancas.py           (aplica)
              python reconciliar_cobrancas.py --dry     (só mostra o que faria)
 """
 import os
+import io
 import sys
+import json
 import time
+import hashlib
 import datetime
 import collections
+
+import requests
 
 from dotenv import load_dotenv
 
@@ -38,10 +43,78 @@ MAX_VELHAS = 60       # cancelar cobranca velha é a direção segura, então o 
 IDADE_MIN = 120       # segundos — não mexe em cobrança recém-criada (corrida com o webhook)
 
 
+ARQ_ALERTA = os.path.join(BASE, ".ultimo_alerta_cobrancas.json")
+REPETIR_APOS = 6 * 3600        # segundos: o mesmo aviso nao volta antes disso
+
+ALERTAS = []                   # o que o script recusou fazer ou nao conseguiu
+AVISOS = []                    # o que ele fez e vale contar (limpeza de mes anterior)
+
+
+def alerta(msg):
+    """Problema que exige olho humano: vai para o log E para o Telegram."""
+    print("  " + msg)
+    ALERTAS.append(msg)
+
+
 def sheets():
     creds = Credentials.from_service_account_file(
         os.environ["GOOGLE_SA_JSON"], scopes=["https://www.googleapis.com/auth/spreadsheets"])
     return gspread.authorize(creds).open_by_key(os.environ["SHEET_ID"])
+
+
+def _ja_avisei(corpo):
+    """True se este mesmo aviso ja foi mandado ha menos de REPETIR_APOS.
+
+    Sem isto, um problema que persiste (a virada que falhou para um atleta) viraria uma
+    mensagem a cada 15 minutos ate alguem resolver."""
+    chave = hashlib.sha256(corpo.encode("utf-8")).hexdigest()
+    agora = time.time()
+    try:
+        with io.open(ARQ_ALERTA, encoding="utf-8") as f:
+            ant = json.load(f)
+        if ant.get("hash") == chave and agora - float(ant.get("ts", 0)) < REPETIR_APOS:
+            return True
+    except Exception:
+        pass
+    try:
+        with io.open(ARQ_ALERTA, "w", encoding="utf-8") as f:
+            json.dump({"hash": chave, "ts": agora}, f)
+    except Exception as e:
+        print("  (nao consegui gravar o controle de repeticao: %s)" % e)
+    return False
+
+
+def avisar_telegram():
+    """Manda ALERTAS e AVISOS para o Telegram. Silencioso quando nao ha nada."""
+    if not ALERTAS and not AVISOS:
+        return
+    linhas = []
+    if ALERTAS:
+        linhas.append("🚨 <b>Cobranças Pix — preciso de você</b>")
+        linhas += ["• " + m for m in ALERTAS]
+    if AVISOS:
+        if linhas:
+            linhas.append("")
+        linhas.append("ℹ️ <b>Cobranças Pix — limpeza automática</b>")
+        linhas += ["• " + m for m in AVISOS]
+    corpo = "\n".join(linhas)
+    if _ja_avisei(corpo):
+        print("  (mesmo aviso ja mandado ha menos de 6h — nao repeti)")
+        return
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    destinos = [x.strip() for x in str(os.environ.get("TELEGRAM_ALLOWED_ID", ""))
+                .replace(";", ",").split(",") if x.strip()]
+    if not token or not destinos:
+        print("  (sem TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_ID — nao avisei)")
+        return
+    for chat in destinos:
+        try:
+            r = requests.post("https://api.telegram.org/bot%s/sendMessage" % token,
+                              json={"chat_id": chat, "text": corpo, "parse_mode": "HTML",
+                                    "disable_web_page_preview": True}, timeout=30)
+            print("  telegram %s: %s" % (chat, r.status_code))
+        except Exception as e:
+            print("  ERRO ao avisar no Telegram: %s" % str(e)[:120])
 
 
 def ajustar_consumo(sh, mes, ini_mes, dry=False):
@@ -77,7 +150,8 @@ def ajustar_consumo(sh, mes, ini_mes, dry=False):
         pg.batch_update(ups, value_input_option="RAW")
     for nome, v in por.items():
         if nome not in vistos and v > 0:
-            print(f"  ATENCAO: {nome} tem R$ {v:.2f} de consumo e nenhuma linha em {mes}")
+            alerta(f"{nome} tem R$ {v:.2f} de consumo no boteco e NENHUMA linha em "
+                   f"{mes} — não consigo cobrar dele")
     return mudou
 
 
@@ -145,8 +219,8 @@ def planejar_velhas(pix_rows, pag_rows, mes):
             continue
         nome = str(p.get("atleta", "")).strip().upper()
         if nome not in com_linha:
-            print(f"  ATENCAO: {nome} tem cobranca ATIVA de {m} e nenhuma linha em {mes} "
-                  f"— nao cancelei; confira a virada do mes")
+            alerta(f"{nome} tem cobrança Pix ATIVA de {m} (R$ {C.nf(p.get('valor')):.2f}) "
+                   f"e nenhuma linha em {mes} — não cancelei; confira a virada do mês")
             continue
         velhas.append((f"{nome} ({m})", i, C.nf(p.get("valor")), str(p.get("txid"))))
     return velhas
@@ -167,9 +241,11 @@ def aplicar(sh, pc, cancelar, criar):
                 feitas += 1
                 print(f"  cancelada  {nome:<12} R$ {valor:>8.2f}  {txid}")
             else:
-                print(f"  ATENCAO    {nome:<12} {txid} nao cancelou: {st}")
+                alerta(f"não consegui cancelar a cobrança de {nome} "
+                       f"(R$ {valor:.2f}) na Efí: {st}")
         except Exception as e:
-            print(f"  ERRO ao cancelar {nome} {txid}: {str(e)[:120]}")
+            alerta(f"erro ao cancelar a cobrança de {nome} (R$ {valor:.2f}): "
+                   f"{str(e)[:100]}")
         time.sleep(0.4)
     if ups:
         pc.batch_update(ups, value_input_option="RAW")
@@ -178,7 +254,8 @@ def aplicar(sh, pc, cancelar, criar):
             if W.nova_cobranca_saldo(sh, nome, _mes(), valor):
                 feitas += 1
         except Exception as e:
-            print(f"  ERRO ao criar {nome} R$ {valor:.2f}: {str(e)[:120]}")
+            alerta(f"erro ao criar a cobrança de {nome} (R$ {valor:.2f}): "
+                   f"{str(e)[:100]}")
         time.sleep(1.0)
     return feitas
 
@@ -189,6 +266,14 @@ def _mes():
 
 
 def main():
+    try:
+        return _main()
+    finally:
+        if "--dry" not in sys.argv:
+            avisar_telegram()
+
+
+def _main():
     dry = "--dry" in sys.argv
     hoje = datetime.date.today()
     mes, ini_mes = _mes(), hoje.replace(day=1)
@@ -202,10 +287,16 @@ def main():
         for nome, _, valor, txid in velhas:
             print(f"  - velha    {nome:<18} R$ {valor:>8.2f}  {txid}")
         if len(velhas) > MAX_VELHAS:
-            print(f"!! {len(velhas)} passa do limite de {MAX_VELHAS}. Nao vou mexer sozinho.")
+            alerta(f"{len(velhas)} cobranças de meses anteriores passam do limite de "
+                   f"{MAX_VELHAS} — não mexi sozinho")
             velhas = []
         elif not dry:
-            print("  canceladas:", aplicar(sh, pc, velhas, []))
+            n = aplicar(sh, pc, velhas, [])
+            print("  canceladas:", n)
+            if n:
+                AVISOS.append("cancelei %d cobrança(s) de mês anterior que continuavam "
+                              "válidas na Efí: %s" % (n, ", ".join(
+                                  "%s R$ %.2f" % (nm, vl) for nm, _, vl, _ in velhas)))
     if not cancelar and not criar:
         if not velhas:
             print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M}] cobrancas de {mes}: tudo certo")
@@ -217,8 +308,8 @@ def main():
     for nome, valor in criar:
         print(f"  + criar    {nome:<12} R$ {valor:>8.2f}")
     if len(cancelar) + len(criar) > MAX_ACOES:
-        print(f"!! {len(cancelar) + len(criar)} acoes passa do limite de {MAX_ACOES}. "
-              "Nao vou mexer sozinho — rode na mao depois de conferir.")
+        alerta(f"{len(cancelar) + len(criar)} ações passam do limite de {MAX_ACOES} — "
+               "não mexi sozinho; confira e rode na mão")
         return
     if dry:
         print("(--dry: nada aplicado)")
